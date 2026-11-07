@@ -1,0 +1,1146 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Fonts used by the lyrics-plus app inside Spotify. */
+@font-face {
+  font-family: "SpotifyMixUI";
+  src: url("./assets/fonts/SpotifyMixUI-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SpotifyMixUI";
+  src: url("./assets/fonts/SpotifyMixUI-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SpotifyMixUITitle";
+  src: url("./assets/fonts/SpotifyMixUITitleVariable.woff2") format("woff2");
+  font-weight: 100 1000;
+  font-stretch: 50% 150%;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "CircularSp-Cyrl";
+  src: url("./assets/fonts/CircularSp-Cyrl-Book.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "CircularSp-Cyrl";
+  src: url("./assets/fonts/CircularSp-Cyrl-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "CircularSp-Cyrl";
+  src: url("./assets/fonts/CircularSp-Cyrl-Black.woff2") format("woff2");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --accent: #f5a524;
+  --accent-color: rgb(245, 165, 36);
+  --accent-soft: rgba(245, 165, 36, 0.18);
+  --accent-glow: rgba(245, 165, 36, 0.42);
+  --ambient-glow: radial-gradient(
+    circle at 50% 30%,
+    rgba(245, 165, 36, 0.45) 0%,
+    rgba(245, 165, 36, 0.15) 55%,
+    transparent 100%
+  );
+
+  --lucid-accent-secondary: #f5a524;
+  --lucid-border-width: 1px;
+  --lucid-border-color: #ffffff;
+  --lucid-hover-border-color: #ffffff;
+  --lucid-border-radius: 14px;
+  --lucid-border-style: solid;
+  --lucid-font-body: Inter, Manrope, system-ui, -apple-system, "Segoe UI",
+    sans-serif;
+  --lucid-font-heading: "Plus Jakarta Sans", Manrope, Inter, system-ui,
+    sans-serif;
+  --lucid-glass-bg: rgba(18, 18, 24, 0.55);
+  --lucid-glass-blur: 24px;
+  --lucid-player-height: 72px;
+  --lucid-player-slider-height: 3px;
+  --lucid-player-cover-radius: 10px;
+  --lucid-ambient-blur: 26px;
+  --lucid-ambient-brightness: 65%;
+  --lucid-ambient-contrast: 100%;
+  --lucid-ambient-saturate: 150%;
+  --lucid-ambient-opacity: 0.8;
+  --lucid-ambient-scale: 1.1;
+  color-scheme: dark;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  html {
+    background-color: #0a0a0c;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    overflow: hidden;
+    background-color: #0a0a0c;
+    color: rgba(255, 255, 255, 0.92);
+    font-family: var(
+      --lucid-font-body,
+      Inter,
+      Manrope,
+      system-ui,
+      -apple-system,
+      "Segoe UI",
+      sans-serif
+    );
+    font-synthesis-weight: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    overscroll-behavior: none;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  .font-display {
+    font-family: var(
+      --lucid-font-heading,
+      "Plus Jakarta Sans",
+      Manrope,
+      Inter,
+      system-ui,
+      sans-serif
+    );
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  button {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--accent) 34%, transparent);
+    color: #fff;
+  }
+
+  :focus-visible {
+    outline: none;
+  }
+}
+
+@layer components {
+  .lucid-glass-panel,
+  .glass {
+    border-width: var(--lucid-border-width, 1px) !important;
+    border-style: var(--lucid-border-style, solid) !important;
+    border-color: color-mix(
+      in srgb,
+      var(--lucid-border-color, #ffffff) 8%,
+      transparent
+    ) !important;
+    border-radius: var(--lucid-border-radius, 14px) !important;
+    background: var(--lucid-glass-bg, rgba(18, 18, 24, 0.55)) !important;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.36) !important;
+    backdrop-filter: blur(var(--lucid-glass-blur, 24px)) saturate(160%) !important;
+    -webkit-backdrop-filter: blur(var(--lucid-glass-blur, 24px)) saturate(160%) !important;
+    transition:
+      border-color 0.2s ease,
+      background 0.2s ease,
+      border-radius 0.2s ease;
+  }
+
+  .lucid-glass-panel:hover,
+  .glass:hover {
+    border-color: color-mix(
+      in srgb,
+      var(--lucid-hover-border-color, #ffffff) 24%,
+      transparent
+    ) !important;
+  }
+
+  .settings-modal {
+    position: relative;
+    z-index: 1000 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    width: min(680px, 92vw) !important;
+    max-width: min(680px, 92vw) !important;
+    max-height: 85vh !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: none !important;
+    overflow: hidden !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    border-radius: 16px !important;
+    background: rgba(22, 22, 28, 0.92) !important;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6) !important;
+    backdrop-filter: blur(32px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(32px) saturate(180%) !important;
+  }
+
+  /*
+   * Panel wrappers only size and clip. Every visible surface (glass, border,
+   * shadow, radius) belongs to the inner card. A square wrapper background
+   * would otherwise peek out of the card corners as dark 90° notches.
+   */
+  .sidebar-shell,
+  .sidebar-frame,
+  .sidebar-content,
+  .now-playing-panel,
+  .now-playing-panel-content,
+  .now-playing-content,
+  .panel-resize-handle,
+  .panel-edge-handle {
+    background: transparent !important;
+    background-color: transparent !important;
+    background-image: none !important;
+    box-shadow: none !important;
+    border: 0 !important;
+  }
+
+  .sidebar-shell,
+  .sidebar-frame,
+  .sidebar-content,
+  .now-playing-panel,
+  .now-playing-panel-content,
+  .now-playing-content {
+    border-radius: var(--lucid-border-radius, 14px) !important;
+    overflow: hidden !important;
+    isolation: isolate;
+  }
+
+  /* The card is the only element that paints glass chrome, clipped to the
+     same radius as every wrapper above it. */
+  .sidebar-card,
+  .now-playing-card {
+    border-radius: var(--lucid-border-radius, 14px) !important;
+    overflow: hidden !important;
+  }
+
+  .panel-resize-handle:focus-visible,
+  .panel-edge-handle:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent) !important;
+    outline-offset: -2px !important;
+  }
+
+  .now-playing-panel {
+    transition: width 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .now-playing-panel[data-resizing="true"] {
+    transition: none;
+  }
+
+  .now-playing-panel-content {
+    transform-origin: top right;
+    opacity: 1;
+    transform: scale(1) translateX(0);
+    transition:
+      opacity 0.2s cubic-bezier(0.2, 0, 0, 1),
+      transform 0.2s cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .now-playing-panel[data-open="false"] .now-playing-panel-content {
+    opacity: 0;
+    transform: scale(0.96) translateX(16px);
+  }
+
+  /* Absolute window-centre positioning: the left logo/actions and the right
+     window controls have different widths, so flex centring drifts. */
+  .titlebar-track-info {
+    position: absolute !important;
+    left: 50% !important;
+    top: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 8px !important;
+    max-width: 50vw;
+    min-width: 0;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    pointer-events: auto;
+    -webkit-app-region: drag;
+    z-index: 10;
+    font-size: 11px;
+    line-height: 1;
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .titlebar-track-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .titlebar-button {
+    display: inline-flex;
+    height: 26px;
+    width: 30px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 7px;
+    color: rgba(255, 255, 255, 0.42);
+    transition:
+      background-color 160ms ease,
+      color 160ms ease;
+  }
+
+  .titlebar-button:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: #fff;
+  }
+
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .lyrics-scroll {
+    /* Native smooth scrolling fights the JS centering on line changes. */
+    scroll-behavior: auto;
+    overflow-anchor: none;
+  }
+
+  .lyrics-line {
+    font-weight: 800 !important;
+    line-height: 1.25 !important;
+    letter-spacing: -0.03em;
+    text-wrap: balance;
+    color: var(--lyrics-inactive);
+    opacity: 0.35;
+    transform: scale(1);
+    transform-origin: center center;
+    /* Only the three cheap, compositor-friendly properties animate. */
+    transition:
+      opacity 0.25s ease,
+      color 0.25s ease,
+      transform 0.25s cubic-bezier(0.2, 0, 0, 1) !important;
+  }
+
+  .lyrics-line[data-active="true"] {
+    color: var(--lyrics-active);
+    opacity: 1;
+    transform: scale(1.02);
+  }
+
+  .karaoke-active {
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  }
+
+  /*
+   * Instrumental lead-in: three breathing discs. The row keeps a fixed
+   * footprint so the lyric scroll does not jump when the dots collapse, while
+   * the discs themselves fade and scale into the line that follows.
+   */
+  .lyrics-intermission {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin: 32px auto;
+    min-height: 16px;
+    opacity: 0;
+    transform: scale(0.9);
+    pointer-events: none;
+    transition:
+      opacity 0.32s ease,
+      transform 0.45s cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .lyrics-intermission[data-active="true"] {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  .lyrics-intermission .dot {
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.25);
+    opacity: 0.32;
+    transform: scale(0.78);
+    animation: wavePulse 1.5s infinite ease-in-out;
+    transition:
+      background-color 0.22s ease,
+      opacity 0.22s ease,
+      transform 0.32s cubic-bezier(0.2, 0, 0, 1),
+      box-shadow 0.22s ease;
+    will-change: transform, opacity;
+  }
+
+  .lyrics-intermission .dot-1 {
+    animation-delay: 0ms;
+  }
+
+  .lyrics-intermission .dot-2 {
+    animation-delay: 160ms;
+  }
+
+  .lyrics-intermission .dot-3 {
+    animation-delay: 320ms;
+  }
+
+  .lyrics-intermission[data-active="false"] .dot {
+    animation-play-state: paused;
+  }
+
+  /* Playback paused: freeze both the wave and the 3-2-1 countdown in place. */
+  .lyrics-intermission.is-paused,
+  .lyrics-intermission.is-paused .dot {
+    animation-play-state: paused !important;
+    transition: none !important;
+  }
+
+  /* Final 3 seconds: stop the wave and count 3-2-1 with bright discs. */
+  .lyrics-intermission[data-counting="true"] .dot {
+    animation: none;
+    background: rgba(255, 255, 255, 0.25);
+    opacity: 0.18;
+    transform: scale(0.78);
+    box-shadow: none;
+  }
+
+  .lyrics-intermission[data-counting="true"] .dot[data-lit="true"] {
+    background: #ffffff;
+    opacity: 1;
+    transform: scale(1.2);
+    box-shadow:
+      0 0 18px rgba(255, 255, 255, 0.75),
+      0 0 34px rgba(255, 255, 255, 0.3);
+  }
+
+  .lyrics-intermission[data-counting="true"] .dot[data-current="true"] {
+    transform: scale(1.25);
+  }
+
+  @keyframes wavePulse {
+    0%,
+    100% {
+      background: rgba(255, 255, 255, 0.25);
+      opacity: 0.28;
+      transform: scale(0.8);
+    }
+    50% {
+      background: rgba(255, 255, 255, 0.78);
+      opacity: 0.95;
+      transform: scale(1.08);
+    }
+  }
+
+  .toggle-switch {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.15);
+    transition: background-color 0.25s ease, box-shadow 0.25s ease;
+  }
+
+  .toggle-switch[aria-checked="true"] {
+    background: var(--accent, #ff5555);
+    box-shadow: 0 0 14px color-mix(in srgb, var(--accent, #ff5555) 35%, transparent);
+  }
+
+  .toggle-switch:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px rgba(10, 10, 12, 0.9),
+      0 0 0 4px color-mix(in srgb, var(--accent, #ff5555) 55%, transparent);
+  }
+
+  .toggle-thumb {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .toggle-switch[aria-checked="true"] .toggle-thumb {
+    transform: translateX(20px);
+  }
+
+  .range-input {
+    --range-progress: 0%;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 18px;
+    background: transparent;
+    cursor: pointer;
+    outline: none;
+  }
+
+  .range-input::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(
+      to right,
+      var(--accent, #ff5555) 0 var(--range-progress),
+      rgba(255, 255, 255, 0.14) var(--range-progress) 100%
+    );
+  }
+
+  .range-input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: -5px;
+    border: none;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--accent, #ff5555) 22%, transparent),
+      0 1px 4px rgba(0, 0, 0, 0.45);
+    transition: transform 0.16s ease, box-shadow 0.16s ease;
+  }
+
+  .range-input:hover::-webkit-slider-thumb,
+  .range-input:focus-visible::-webkit-slider-thumb {
+    transform: scale(1.15);
+    box-shadow:
+      0 0 0 5px color-mix(in srgb, var(--accent, #ff5555) 26%, transparent),
+      0 1px 5px rgba(0, 0, 0, 0.5);
+  }
+
+  .range-input::-moz-range-track {
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.14);
+  }
+
+  .range-input::-moz-range-progress {
+    height: 4px;
+    border-radius: 999px;
+    background: var(--accent, #ff5555);
+  }
+
+  .range-input::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border: none;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--accent, #ff5555) 22%, transparent),
+      0 1px 4px rgba(0, 0, 0, 0.45);
+    transition: transform 0.16s ease, box-shadow 0.16s ease;
+  }
+
+  .range-input:hover::-moz-range-thumb,
+  .range-input:focus-visible::-moz-range-thumb {
+    transform: scale(1.15);
+  }
+}
+
+@layer utilities {
+  .grain {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+    background-size: 180px 180px;
+  }
+}
+
+/* ── Lucid appearance engine ───────────────────────────────────────────── */
+@layer components {
+
+.ambient-layer {
+  will-change: transform;
+  transform: translateZ(0);
+  contain: layout style paint;
+}
+
+.ambient-cover {
+  filter: blur(var(--lucid-ambient-blur))
+    brightness(var(--lucid-ambient-brightness))
+    contrast(var(--lucid-ambient-contrast))
+    saturate(var(--lucid-ambient-saturate));
+  transform: scale(var(--lucid-ambient-scale));
+  opacity: var(--lucid-ambient-opacity);
+  transform-origin: center;
+}
+
+/* Monochrome covers stay neutral even with a high ambient saturation boost. */
+.ambient-cover.ambient-cover-mono {
+  filter: blur(var(--lucid-ambient-blur))
+    brightness(var(--lucid-ambient-brightness))
+    contrast(var(--lucid-ambient-contrast))
+    grayscale(1);
+}
+
+.ambient-blobs {
+  filter: blur(calc(var(--lucid-ambient-blur) * 1.9))
+    brightness(var(--lucid-ambient-brightness))
+    contrast(var(--lucid-ambient-contrast))
+    saturate(var(--lucid-ambient-saturate));
+  opacity: var(--lucid-ambient-opacity);
+}
+
+.ambient-light-veil {
+  display: none;
+}
+
+h1,
+h2,
+h3,
+h4,
+.font-display {
+  font-family: var(
+    --lucid-font-heading,
+    "Plus Jakarta Sans",
+    Manrope,
+    Inter,
+    system-ui,
+    sans-serif
+  ) !important;
+}
+
+html[data-lucid-tinting="true"] .glass,
+html[data-lucid-tinting="true"] .lucid-glass-panel {
+  background: color-mix(
+    in srgb,
+    var(--accent) 7%,
+    var(--lucid-glass-bg, rgba(18, 18, 24, 0.55))
+  ) !important;
+}
+
+html[data-lucid-tinting="true"] .lucid-settings-modal {
+  background-color: color-mix(
+    in srgb,
+    var(--accent) 4%,
+    rgba(16, 16, 20, 0.88)
+  ) !important;
+}
+
+.lucid-settings-modal {
+  border-width: var(--lucid-border-width, 1px);
+  border-style: var(--lucid-border-style, solid);
+  border-color: color-mix(
+    in srgb,
+    var(--lucid-border-color, #ffffff) 17%,
+    transparent
+  );
+  border-radius: var(--lucid-border-radius, 14px) !important;
+  background-color: rgba(16, 16, 20, 0.88);
+  box-shadow:
+    0 32px 100px rgba(0, 0, 0, 0.72),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(34px) saturate(155%);
+  -webkit-backdrop-filter: blur(34px) saturate(155%);
+}
+
+.lucid-player-bar {
+  position: relative;
+  height: var(--lucid-player-height);
+  will-change: transform;
+  transform: translateZ(0);
+  contain: layout style;
+  overflow: hidden;
+  transition:
+    height 0.22s cubic-bezier(0.2, 0, 0, 1),
+    background 0.2s ease,
+    border-radius 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.lucid-player-bar > * {
+  position: relative;
+  z-index: 1;
+}
+
+html[data-lucid-player-floating="true"] .lucid-player-bar {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 50;
+}
+
+html[data-lucid-player-floating="true"] .lucid-player-shell {
+  height: 0 !important;
+  padding: 0 !important;
+}
+
+html[data-lucid-player-floating="true"] .lucid-app-content {
+  padding-bottom: calc(var(--lucid-player-height) + 32px) !important;
+}
+
+html[data-lucid-player-floating="true"] .lucid-queue-panel {
+  bottom: calc(var(--lucid-player-height) + 32px) !important;
+}
+
+.lucid-player-cover {
+  /* Keep the mini artwork compact and tidy even if a larger legacy radius is
+     persisted in the Lucid appearance settings. */
+  border-radius: clamp(6px, var(--lucid-player-cover-radius, 10px), 8px) !important;
+}
+
+/* Album/playlist media cards keep the compact glass look. */
+html .library-media-card.lucid-glass-panel {
+  background: rgba(255, 255, 255, 0.035) !important;
+  border-radius: 16px !important;
+  transition:
+    transform 0.25s cubic-bezier(0.2, 0, 0, 1),
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.25s ease;
+}
+
+html .library-media-card.lucid-glass-panel:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  transform: translateY(-4px) !important;
+  box-shadow: 0 18px 44px -18px rgba(0, 0, 0, 0.7) !important;
+}
+
+/*
+ * Artist grid performance. Hundreds of cards must not each run a
+ * backdrop-filter, and offscreen cards should skip layout/paint entirely.
+ * No `will-change` here: promoting 300 cards to their own layers costs far
+ * more memory than it saves.
+ */
+html .artist-card.lucid-glass-panel {
+  background: rgba(255, 255, 255, 0.04) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+  transition:
+    background 0.2s ease,
+    transform 0.2s cubic-bezier(0.2, 0, 0, 1) !important;
+  content-visibility: auto;
+  contain-intrinsic-size: 220px;
+  contain: layout style paint;
+}
+
+html .artist-card.lucid-glass-panel:hover {
+  background: rgba(255, 255, 255, 0.09) !important;
+  transform: translateY(-4px) !important;
+}
+
+.artist-card-cover {
+  border-radius: 50% !important;
+  aspect-ratio: 1 / 1;
+  width: 100%;
+}
+
+.artist-card-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+}
+
+/* Tailwind's `/opacity` modifier cannot resolve the CSS-variable accent
+   color, so selected library pills are painted explicitly. */
+.library-filter-pill[aria-selected="true"] {
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+  background-color: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* Compact three-bar now-playing mark beside the player-bar title. */
+.eq-bars.eq-bars-track-title {
+  height: 12px;
+  gap: 2px;
+}
+
+.eq-bars-track-title > span {
+  width: 2px;
+}
+
+.eq-bars-track-title > span:nth-child(1) {
+  transform: scaleY(0.5);
+}
+
+.eq-bars-track-title > span:nth-child(2) {
+  transform: scaleY(0.9);
+}
+
+.eq-bars-track-title > span:nth-child(3) {
+  transform: scaleY(0.65);
+}
+
+.lucid-progress-track {
+  height: var(--lucid-player-slider-height) !important;
+  border-radius: 2px !important;
+}
+
+html[data-lucid-layout="compact"] .lucid-app-content {
+  gap: 4px !important;
+  padding-left: 6px !important;
+  padding-right: 6px !important;
+}
+
+html[data-lucid-layout="compact"] .glass,
+html[data-lucid-layout="compact"] .lucid-glass-panel {
+  border-radius: calc(var(--lucid-border-radius) * 0.68) !important;
+}
+
+html[data-lucid-layout="compact"] .lucid-settings-modal {
+  border-radius: calc(var(--lucid-border-radius) * 0.82) !important;
+}
+
+/* Collapsed sidebar: identical 44px centred hit-area for all nav icons. */
+.lucid-nav-item-compact {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 44px !important;
+  height: 44px !important;
+  flex: 0 0 44px !important;
+  margin: 4px auto !important;
+  padding: 0 !important;
+}
+
+.lucid-nav-item-compact > svg {
+  margin: 0 !important;
+  transform: none !important;
+}
+
+/* Skip layout/paint for offscreen library rows; images also use loading="lazy". */
+.track-row-lazy {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 58px;
+}
+
+/* Experimental light palette. Utility overrides keep the existing markup usable. */
+html[data-lucid-light="true"] {
+  color-scheme: light;
+  background-color: #e8eaf0;
+}
+
+html[data-lucid-light="true"] body {
+  background-color: #e8eaf0;
+  color: rgba(17, 17, 24, 0.9);
+}
+
+html[data-lucid-light="true"] .ambient-layer {
+  background-color: #e9ebf1;
+}
+
+html[data-lucid-light="true"] .ambient-light-veil {
+  display: block;
+  background: linear-gradient(
+    180deg,
+    rgba(246, 247, 251, 0.88),
+    rgba(226, 229, 238, 0.84)
+  );
+  backdrop-filter: blur(18px) saturate(0.8) brightness(1.25);
+}
+
+html[data-lucid-light="true"] .ambient-vignette,
+html[data-lucid-light="true"] .ambient-fade,
+html[data-lucid-light="true"] .ambient-dim {
+  opacity: 0.25;
+}
+
+html[data-lucid-light="true"] .glass,
+html[data-lucid-light="true"] .lucid-glass-panel {
+  background: rgba(255, 255, 255, 0.64) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--lucid-border-color, #ffffff) 34%,
+    rgba(10, 10, 16, 0.18)
+  ) !important;
+  box-shadow: 0 10px 34px rgba(28, 32, 48, 0.13) !important;
+}
+
+html[data-lucid-light="true"][data-lucid-tinting="true"] .glass,
+html[data-lucid-light="true"][data-lucid-tinting="true"] .lucid-glass-panel {
+  background: color-mix(
+    in srgb,
+    var(--accent) 8%,
+    rgba(255, 255, 255, 0.66)
+  ) !important;
+}
+
+html[data-lucid-light="true"] .lucid-settings-modal {
+  background-color: rgba(250, 250, 253, 0.92) !important;
+}
+
+html[data-lucid-light="true"] [class*="text-white"] {
+  color: rgba(16, 16, 24, 0.82) !important;
+}
+
+html[data-lucid-light="true"] [class*="text-white/2"],
+html[data-lucid-light="true"] [class*="text-white/3"] {
+  color: rgba(16, 16, 24, 0.42) !important;
+}
+
+html[data-lucid-light="true"] [class*="bg-white/"] {
+  background-color: rgba(12, 12, 20, 0.06) !important;
+}
+
+html[data-lucid-light="true"] [class*="border-white/"] {
+  border-color: rgba(12, 12, 20, 0.12) !important;
+}
+
+html[data-lucid-light="true"] .bg-\[\#101014\],
+html[data-lucid-light="true"] .bg-\[\#141419\] {
+  background-color: rgba(250, 250, 253, 0.96) !important;
+}
+
+/* Options & Providers keeps its own opaque dark glass over the ambient tint. */
+html[data-lucid-tinting="true"] .settings-modal {
+  background: rgba(22, 22, 28, 0.92) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6) !important;
+}
+
+}
+
+body.is-resizing,
+body.is-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Equalizer bars used in track rows, the queue, and the player bar. */
+.eq-bars {
+  display: inline-flex;
+  height: 14px;
+  align-items: flex-end;
+  gap: 2px;
+  color: var(--accent);
+}
+
+.eq-bars > span {
+  display: block;
+  width: 2px;
+  height: 100%;
+  transform: scaleY(0.32);
+  transform-origin: bottom;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.7;
+}
+
+.eq-bars.is-playing > span {
+  opacity: 1;
+  animation: eq-bounce 900ms ease-in-out infinite;
+}
+
+.eq-bars.is-playing > span:nth-child(2) {
+  animation-duration: 720ms;
+  animation-delay: -180ms;
+}
+
+.eq-bars.is-playing > span:nth-child(3) {
+  animation-duration: 1040ms;
+  animation-delay: -420ms;
+}
+
+.eq-bars.is-playing > span:nth-child(4) {
+  animation-duration: 820ms;
+  animation-delay: -90ms;
+}
+
+@keyframes eq-bounce {
+  0%,
+  100% {
+    transform: scaleY(0.28);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/*
+ * Toasts must always paint above any modal or overlay. Settings dialogs use
+ * z-index 1000, so the toast layer sits far above that while staying
+ * click-through except for the cards themselves.
+ */
+.toast-container,
+.toast-notification-root,
+.notification-center {
+  position: fixed !important;
+  z-index: 99999 !important;
+  pointer-events: none !important;
+}
+
+.toast-container > *,
+.toast-notification-root > *,
+.notification-center > *,
+.toast-item {
+  z-index: 100000 !important;
+  pointer-events: auto !important;
+}
+
+@keyframes toast-in {
+  from {
+    transform: translateY(12px) scale(0.97);
+  }
+  to {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes header-badge-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.toast-item {
+  animation: toast-in 220ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+/*
+ * Lucid frosted-glass notifications. The background stays translucent enough
+ * for the ambient artwork to show through, while the saturation boost and
+ * inner highlight keep icons and copy crisp.
+ */
+.toast-item,
+.toast-card,
+.toast,
+.notification-item {
+  background: rgba(20, 20, 26, 0.55) !important;
+  backdrop-filter: blur(24px) saturate(170%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(170%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 14px !important;
+  box-shadow:
+    0 12px 36px 0 rgba(0, 0, 0, 0.35),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.1) !important;
+  color: #ffffff !important;
+}
+
+.toast-dismiss {
+  color: #ffffff !important;
+  opacity: 0.5 !important;
+  transition:
+    opacity 0.18s ease,
+    background-color 0.18s ease !important;
+}
+
+.toast-dismiss:hover {
+  opacity: 1 !important;
+}
+
+/*
+ * One frosted-glass contract for every floating surface. The queue panel has
+ * its own slightly lighter tint, but menus, popovers and future dialogs share
+ * the same border, blur and shadow so they cannot fall back to a flat black
+ * box when a new component forgets the glass classes.
+ */
+.modal-content,
+.popover-content,
+.context-menu,
+.dropdown-menu,
+.queue-modal,
+.queue-popover,
+.queue-dialog,
+.queue-floating-panel {
+  background: rgba(18, 18, 24, 0.65) !important;
+  backdrop-filter: blur(28px) saturate(170%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(170%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 16px !important;
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.5),
+    inset 0 1px 1px rgba(255, 255, 255, 0.1) !important;
+}
+
+.queue-modal,
+.queue-popover,
+.queue-dialog,
+.queue-floating-panel {
+  background: rgba(18, 18, 24, 0.6) !important;
+  overflow: hidden !important;
+}
+
+/* Queue rows stay transparent until hovered, so the ambient glow reads through. */
+.queue-popover .queue-track-row {
+  background: transparent;
+  border-radius: 8px;
+}
+
+.queue-popover .queue-track-row:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+
+.queue-popover .queue-track-row.is-active {
+  background: rgba(255, 255, 255, 0.07);
+}
