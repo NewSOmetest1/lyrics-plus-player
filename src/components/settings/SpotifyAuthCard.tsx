@@ -143,8 +143,8 @@ export function SpotifyAuthCard({ open }: { open: boolean }) {
       setManualOpen(false);
       useToastStore.getState().push({
         kind: "success",
-        title: "✓ Авторизован в Spotify",
-        description: "sp_dc и sp_key сохранены. Проверяю подключение…",
+        title: "✓ Signed in to Spotify",
+        description: "sp_dc and sp_key saved. Testing connection…",
       });
     } catch (error) {
       useToastStore.getState().push({
@@ -167,8 +167,8 @@ export function SpotifyAuthCard({ open }: { open: boolean }) {
       setTestResult(null);
       useToastStore.getState().push({
         kind: "info",
-        title: "Вы вышли из Spotify",
-        description: "Куки sp_dc и sp_key удалены.",
+        title: "Signed out of Spotify",
+        description: "sp_dc and sp_key cookies removed.",
       });
     } catch (error) {
       useToastStore.getState().push({
@@ -250,11 +250,11 @@ export function SpotifyAuthCard({ open }: { open: boolean }) {
           {authenticated ? (
             <p className="mt-1 flex items-center gap-1.5 text-[10.5px] font-medium text-emerald-300">
               <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-              ✓ Авторизован в Spotify
+              ✓ Signed in to Spotify
             </p>
           ) : (
             <p className="mt-1 text-[10px] leading-relaxed text-white/30">
-              Нативный вход в окне Spotify. Сохраняются обе куки: sp_dc и sp_key.
+              Native sign-in in the Spotify window. Both sp_dc and sp_key cookies are saved.
             </p>
           )}
         </div>
@@ -270,7 +270,7 @@ export function SpotifyAuthCard({ open }: { open: boolean }) {
             ) : (
               <LogOut className="h-3.5 w-3.5" />
             )}
-            Выйти
+            Sign out
           </button>
         ) : (
           <button
@@ -284,7 +284,7 @@ export function SpotifyAuthCard({ open }: { open: boolean }) {
             ) : (
               <LogIn className="h-3.5 w-3.5" />
             )}
-            Войти в Spotify
+            Sign in to Spotify
           </button>
         )}
       </div>
@@ -328,7 +328,7 @@ export function SpotifyAuthCard({ open }: { open: boolean }) {
               manualOpen && "rotate-180",
             )}
           />
-          Вручную (sp_dc + sp_key)
+          Manual (sp_dc + sp_key)
         </button>
       </div>
 
@@ -336,7 +336,7 @@ export function SpotifyAuthCard({ open }: { open: boolean }) {
         <div className="mt-2.5 space-y-2 border-t border-white/[0.06] pt-2.5">
           <div className="flex items-center justify-between">
             <p className="text-[9.5px] leading-relaxed text-white/25">
-              Fallback для старых сессий. Обе куки должны быть из одного браузера.
+              Fallback for legacy sessions. Both cookies must come from the same browser.
             </p>
             <button
               type="button"

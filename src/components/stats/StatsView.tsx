@@ -30,13 +30,7 @@ interface TopArtist {
 }
 
 function playsLabel(count: number): string {
-  const mod10 = count % 10;
-  const mod100 = count % 100;
-  if (mod10 === 1 && mod100 !== 11) return `${count} раз`;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
-    return `${count} раза`;
-  }
-  return `${count} раз`;
+  return `${count.toLocaleString("en-US")} ${count === 1 ? "play" : "plays"}`;
 }
 
 function MetricCard({
@@ -110,7 +104,7 @@ function ArtistCard({ artist, rank }: { artist: TopArtist; rank: number }) {
       type="button"
       onClick={() => openArtist(artist.name)}
       className="lucid-glass-panel group relative min-w-0 rounded-2xl p-3 text-center transition-transform duration-300 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-      title={`Открыть ${artist.name}`}
+      title={`Open ${artist.name}`}
     >
       <span
         className={cn(
@@ -169,7 +163,7 @@ export function StatsView() {
       if (announce) {
         useToastStore.getState().push({
           kind: "error",
-          title: "Не удалось загрузить статистику",
+          title: "Could not load listening stats",
           description: String(error),
         });
       }
@@ -305,14 +299,14 @@ export function StatsView() {
           <div>
             <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.22em] text-accent/80">
               <BarChart3 className="h-3 w-3" />
-              Личная аналитика
+              Personal analytics
             </p>
             <h1 className="mt-1 font-display text-[32px] font-extrabold leading-tight tracking-[-0.03em] text-white lg:text-[38px]">
-              Статистика
+              Listening Stats
             </h1>
             <p className="mt-1.5 max-w-lg text-[12.5px] leading-relaxed text-white/35">
-              Время, которое музыка действительно звучала. Прослушивание
-              засчитывается после 25 секунд или в конце трека.
+              Time the music actually played. A listen counts after 25 seconds
+              or when the track ends.
             </p>
           </div>
 
@@ -321,43 +315,43 @@ export function StatsView() {
             onClick={() => void load(true)}
             disabled={refreshing}
             className="flex h-9 items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.04] px-3.5 text-[11.5px] font-semibold text-white/55 outline-none transition hover:border-white/[0.15] hover:bg-white/[0.07] hover:text-white focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-50"
-            title="Обновить статистику"
+            title="Refresh stats"
           >
             <RefreshCw
               className={cn("h-3.5 w-3.5", refreshing && "animate-spin")}
             />
-            Обновить
+            Refresh
           </button>
         </div>
 
         <div className="mt-6 grid gap-3 md:grid-cols-3">
           <MetricCard
             icon={Clock3}
-            label="Всего прослушано"
+            label="Total Time"
             value={formatListenDuration(totals.listenTime)}
-            detail="фактическое время звучания"
+            detail="actual listening time"
             accent={totals.listenTime > 0}
             delay={0}
           />
           <MetricCard
             icon={Music2}
-            label="Сыграно треков"
-            value={totals.plays.toLocaleString("ru-RU")}
+            label="Tracks Played"
+            value={totals.plays.toLocaleString("en-US")}
             detail={
               totals.plays > 0
-                ? `${playsLabel(totals.plays)} за всё время`
-                : "Статистика появится после первых 25 секунд"
+                ? `${playsLabel(totals.plays)} all time`
+                : "Stats appear after the first 25 seconds"
             }
             delay={45}
           />
           <MetricCard
             icon={Crown}
-            label="Главный артист"
-            value={favourite?.name ?? "Пока нет"}
+            label="Top Artist"
+            value={favourite?.name ?? "None yet"}
             detail={
               favourite
                 ? `${playsLabel(favourite.plays)} · ${formatListenDuration(favourite.listenTime)}`
-                : "Послушайте треки, чтобы найти фаворита"
+                : "Listen to tracks to find your favourite"
             }
             accent={Boolean(favourite)}
             delay={90}
@@ -368,14 +362,14 @@ export function StatsView() {
           <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
             <div>
               <h2 className="font-display text-[16px] font-bold tracking-tight text-white/90">
-                Топ-5 исполнителей
+                Top Artists
               </h2>
               <p className="mt-0.5 text-[10.5px] text-white/25">
-                По суммарному времени прослушивания
+                Top 5 by total listening time
               </p>
             </div>
             <span className="text-[10px] uppercase tracking-[0.16em] text-white/20">
-              {hasStats ? "Ваши фавориты" : "Пока пусто"}
+              {hasStats ? "Your favourites" : "Empty for now"}
             </span>
           </div>
 
@@ -395,11 +389,11 @@ export function StatsView() {
                 <Music2 className="h-5 w-5 text-white/25" />
               </span>
               <p className="mt-3 text-[12.5px] font-semibold text-white/55">
-                Здесь появятся ваши главные артисты
+                Your top artists will appear here
               </p>
               <p className="mt-1 max-w-sm text-[11px] leading-relaxed text-white/25">
-                Слушайте музыку дольше 25 секунд — плеер сам соберёт личную
-                статистику.
+                Listen for more than 25 seconds and the player will build your
+                personal stats.
               </p>
             </div>
           )}
@@ -410,10 +404,10 @@ export function StatsView() {
             <div>
               <h2 className="flex items-center gap-2 font-display text-[16px] font-bold tracking-tight text-white/90">
                 <Trophy className="h-4 w-4 text-accent" />
-                Топ-10 треков
+                Most Played
               </h2>
               <p className="mt-0.5 text-[10.5px] text-white/25">
-                Самые зацикленные песни · двойной клик запускает трек
+                Top 10 tracks · double-click to play
               </p>
             </div>
             <button
@@ -423,16 +417,16 @@ export function StatsView() {
               className="flex h-9 items-center gap-2 rounded-full bg-accent px-4 text-[11.5px] font-bold text-black shadow-glow transition hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
             >
               <Play className="h-3.5 w-3.5 fill-current" />
-              Запустить плейлист "Топ за всё время"
+              Play "All-Time Top" playlist
             </button>
           </div>
 
           <div className="lucid-glass-panel overflow-hidden rounded-2xl">
             <div className="grid grid-cols-[28px_minmax(0,1fr)_76px] items-center gap-3 border-b border-white/[0.06] px-3 py-2.5 text-[9px] font-bold uppercase tracking-[0.16em] text-white/20 md:grid-cols-[28px_minmax(0,1fr)_86px_74px]">
               <span className="text-center">#</span>
-              <span>Трек</span>
-              <span className="text-right">Прослушивания</span>
-              <span className="hidden text-right md:block">Время</span>
+              <span>Track</span>
+              <span className="text-right">Plays</span>
+              <span className="hidden text-right md:block">Time</span>
             </div>
 
             {topTracks.length > 0 ? (
@@ -489,7 +483,7 @@ export function StatsView() {
                             event.stopPropagation();
                             playEntry(entry);
                           }}
-                          aria-label={`Воспроизвести ${entry.track.title}`}
+                          aria-label={`Play ${entry.track.title}`}
                           className="absolute flex h-7 w-7 items-center justify-center rounded-full text-white opacity-0 transition hover:scale-110 group-hover:opacity-100 focus-visible:opacity-100"
                         >
                           <Play className="h-3.5 w-3.5 fill-current" />
@@ -550,11 +544,11 @@ export function StatsView() {
                   <Trophy className="h-5 w-5 text-white/25" />
                 </span>
                 <p className="mt-3 text-[12.5px] font-semibold text-white/55">
-                  Рейтинг ещё не собран
+                  No ranking yet
                 </p>
                 <p className="mt-1 max-w-sm text-[11px] leading-relaxed text-white/25">
-                  Первый трек попадёт в топ после 25 секунд прослушивания или
-                  полного проигрывания.
+                  The first track enters the chart after 25 seconds of listening
+                  or a full play.
                 </p>
               </div>
             )}
@@ -563,14 +557,14 @@ export function StatsView() {
 
         {!loaded && (
           <p className="mt-5 text-center text-[10.5px] text-white/25">
-            Загружаем статистику…
+            Loading stats…
           </p>
         )}
 
         <p className="mt-5 flex items-center justify-center gap-1.5 text-center text-[10px] text-white/15">
           <Clock3 className="h-3 w-3" />
-          {formatTime(totals.listenTime * 1000)} суммарного звучания · данные
-          хранятся локально
+          {formatTime(totals.listenTime * 1000)} of total listening · data
+          stored locally
         </p>
       </div>
     </div>

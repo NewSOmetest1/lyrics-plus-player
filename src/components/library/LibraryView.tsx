@@ -495,7 +495,7 @@ export function LibraryView() {
                       onClick={toggleSortMenu}
                       aria-haspopup="menu"
                       aria-expanded={sortMenuOpen}
-                      title={`Сортировка: ${TRACK_SORT_LABELS[sortState.mode]}`}
+                      title={`Sort by: ${TRACK_SORT_LABELS[sortState.mode]}`}
                       className={cn(
                         "flex items-center gap-1.5 pl-3 pr-2.5 text-[10.5px] font-semibold outline-none transition hover:bg-white/[0.06] hover:text-white focus-visible:bg-white/[0.08]",
                         sortState.mode === "default"
@@ -504,7 +504,7 @@ export function LibraryView() {
                       )}
                     >
                       <ArrowUpDown className="h-3.5 w-3.5 text-white/40" />
-                      Сортировка
+                      Sort by...
                     </button>
                     <span
                       aria-hidden
@@ -515,14 +515,14 @@ export function LibraryView() {
                       onClick={toggleSortReverse}
                       aria-label={
                         sortState.reverse
-                          ? "Прямой порядок сортировки"
-                          : "Обратный порядок сортировки"
+                          ? "Sort ascending"
+                          : "Sort descending"
                       }
                       aria-pressed={sortState.reverse}
                       title={
                         sortState.reverse
-                          ? "Обратный порядок · нажмите для прямого"
-                          : "Прямой порядок · нажмите для обратного"
+                          ? "Descending order · click for ascending"
+                          : "Ascending order · click for descending"
                       }
                       className={cn(
                         "flex w-8 items-center justify-center outline-none transition hover:bg-white/[0.06] focus-visible:bg-white/[0.08]",
@@ -600,7 +600,7 @@ export function LibraryView() {
             />
             <div
               role="menu"
-              aria-label="Сортировка треков"
+              aria-label="Track sorting"
               style={{
                 left: sortMenuPosition.left,
                 top: sortMenuPosition.top,
@@ -611,10 +611,10 @@ export function LibraryView() {
             >
               <div className="flex shrink-0 items-center justify-between border-b border-white/[0.06] px-3 py-2">
                 <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-white/30">
-                  Сортировка
+                  Sort by...
                 </span>
                 <span className="text-[9px] text-white/20">
-                  AIMP-порядок
+                  AIMP order
                 </span>
               </div>
 
@@ -672,7 +672,7 @@ export function LibraryView() {
                     {sortState.reverse && <Check className="h-2.5 w-2.5" />}
                   </span>
                   <span className="min-w-0 flex-1 truncate">
-                    В обратном порядке
+                    Reverse order
                   </span>
                   {sortState.reverse ? (
                     <ArrowDown className="h-3.5 w-3.5 shrink-0 text-accent" />

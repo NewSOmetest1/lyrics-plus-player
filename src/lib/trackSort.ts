@@ -18,21 +18,21 @@ export const TRACK_SORT_MODES = [
 
 export type TrackSortMode = (typeof TRACK_SORT_MODES)[number];
 
-/** AIMP's Russian labels, kept verbatim for the sort popup. */
+/** AIMP-style labels for the sort popup. */
 export const TRACK_SORT_LABELS: Record<TrackSortMode, string> = {
-  default: "По умолчанию",
-  title: "Заголовку",
-  album: "Альбому",
-  "album-track": "Альбому / № трека",
-  "year-album": "Году / Альбому",
-  "year-album-track": "Году / Альбому / № трека",
-  "artist-year-album": "Артисту / Году / Альбому",
-  "artist-year-album-track": "Артисту / Году / Альбому / № трека",
-  filename: "Имени файла",
-  modified: "Дате изменения файла",
-  added: "Дате добавления в плеер",
-  duration: "Длительности",
-  shuffle: "Перемешать",
+  default: "Default",
+  title: "Title",
+  album: "Album",
+  "album-track": "Album / Track No.",
+  "year-album": "Year / Album",
+  "year-album-track": "Year / Album / Track No.",
+  "artist-year-album": "Artist / Year / Album",
+  "artist-year-album-track": "Artist / Year / Album / Track No.",
+  filename: "File name",
+  modified: "File modified",
+  added: "Date added",
+  duration: "Duration",
+  shuffle: "Shuffle",
 };
 
 export const SORT_MODE_STORAGE_KEY = "lyricsplus.trackSortMode";

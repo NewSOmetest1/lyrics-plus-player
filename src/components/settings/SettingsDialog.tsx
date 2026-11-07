@@ -471,8 +471,8 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     resetAllTrackDelays();
     useToastStore.getState().push({
       kind: "info",
-      title: "Калибровки треков сброшены",
-      description: "Все индивидуальные задержки снова равны 0 ms.",
+      title: "Track offsets reset",
+      description: "All per-track delays are back to 0 ms.",
     });
   };
 
@@ -631,15 +631,15 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                     <div className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
                       <div className="min-w-0">
                         <p className="text-[11px] font-medium text-white/55">
-                          Для текущего трека:{" "}
+                          Current track offset:{" "}
                           <span className="font-semibold tabular-nums text-white/85">
                             {formatTrackDelay(currentTrackDelay)}
                           </span>
                         </p>
                         <p className="mt-0.5 truncate text-[10px] text-white/25">
                           {currentTrack
-                            ? `${currentTrack.title} — сохраняется отдельно для каждой песни`
-                            : "Трек не выбран — калибровка применится к текущей песне"}
+                            ? `${currentTrack.title} — Saved individually per track`
+                            : "No track selected — the offset will apply to the current song"}
                         </p>
                       </div>
                       <button
@@ -648,7 +648,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                         disabled={!hasTrackCalibrations}
                         className="shrink-0 rounded-lg border border-white/[0.08] bg-white/[0.05] px-2.5 py-1.5 text-[10px] font-semibold text-white/55 transition hover:border-accent/30 hover:bg-accent/10 hover:text-accent disabled:pointer-events-none disabled:opacity-35"
                       >
-                        Сбросить калибровки всех треков
+                        Reset all track offsets
                       </button>
                     </div>
 

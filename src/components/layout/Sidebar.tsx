@@ -41,7 +41,7 @@ interface AlbumGroup {
 const navItems = [
   { id: "library", label: "Library", icon: Library },
   { id: "artists", label: "Artists", icon: UserRound },
-  { id: "stats", label: "Статистика", icon: BarChart3 },
+  { id: "stats", label: "Stats", icon: BarChart3 },
   { id: "now-playing", label: "Now Playing", icon: Disc3 },
   { id: "search", label: "Search", icon: Search },
   { id: "karaoke", label: "Karaoke", icon: Mic2 },

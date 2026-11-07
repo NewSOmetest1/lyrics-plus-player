@@ -18,15 +18,15 @@ export function formatTimeLong(ms: number): string {
   return `${hours} hr ${minutes} min`;
 }
 
-/** Listening time for the personal stats screen: "38 ч 15 мин". */
+/** Listening time for the personal stats screen: "38 hr 15 min". */
 export function formatListenDuration(totalSeconds: number): string {
-  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return "0 мин";
-  if (totalSeconds < 60) return `${Math.max(1, Math.round(totalSeconds))} сек`;
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return "0 min";
+  if (totalSeconds < 60) return `${Math.max(1, Math.round(totalSeconds))} sec`;
   const totalMinutes = Math.floor(totalSeconds / 60);
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
-  if (hours > 0) return `${hours} ч ${minutes} мин`;
-  return `${totalMinutes} мин`;
+  if (hours > 0) return `${hours} hr ${minutes} min`;
+  return `${totalMinutes} min`;
 }
 
 export function formatSampleRate(hz: number | null): string | null {

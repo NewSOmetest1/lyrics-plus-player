@@ -172,7 +172,7 @@ async function loginSpotify(deps, store, notify) {
   const authWin = new BrowserWindow({
     width: 500,
     height: 700,
-    title: "Вход в Spotify",
+    title: "Spotify Sign In",
     autoHideMenuBar: true,
     parent: parent && !parent.isDestroyed?.() ? parent : undefined,
     modal: Boolean(parent && !parent.isDestroyed?.()),

@@ -61,7 +61,7 @@ let trackDelays: TrackDelayStore;
 
 /**
  * Fill fileName/mtime for libraries created before AIMP sorting existed, so
- * "Дате изменения файла" uses the real disk timestamp on the very first run.
+ * "File modified" uses the real disk timestamp on the very first run.
  */
 async function backfillFileMetadata(): Promise<void> {
   const missing = store.getTracksMissingFileMetadata();

@@ -54,10 +54,10 @@ export function TrackDelayIndicator() {
           >
             <Timer className="h-3.5 w-3.5 text-accent" />
             <span className="text-[12px] font-medium text-white/75">
-              Задержка трека:
+              Track delay:
             </span>
             <span className="text-[13px] font-bold tabular-nums text-accent">
-              {formatTrackDelay(offsetMs, "мс")}
+              {formatTrackDelay(offsetMs)}
             </span>
           </motion.div>
         )}
