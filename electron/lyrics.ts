@@ -1048,6 +1048,11 @@ export async function resolveLyrics(
     }
   }
 
+  // A plain-text result from a higher-priority provider must not hide synced
+  // lyrics from a lower-priority one. Keep the first plain result as a
+  // fallback and keep looking for timestamps.
+  let fallback: { provider: string; content: string } | null = null;
+
   for (const provider of parseProviders(store)) {
     if (!provider.enabled) continue;
     const result = await runProvider(provider.id, store, track);
@@ -1056,9 +1061,20 @@ export async function resolveLyrics(
       return buildPayload(track.id, provider.id, "", true);
     }
     if (result.content) {
-      cache(store, track, provider.id, result.content);
-      return buildPayload(track.id, provider.id, result.content);
+      const payload = buildPayload(track.id, provider.id, result.content);
+      if (payload.synced) {
+        cache(store, track, provider.id, result.content);
+        return payload;
+      }
+      if (!fallback) {
+        fallback = { provider: provider.id, content: result.content };
+      }
     }
+  }
+
+  if (fallback) {
+    cache(store, track, fallback.provider, fallback.content);
+    return buildPayload(track.id, fallback.provider, fallback.content);
   }
 
   throw new Error("No lyrics found");

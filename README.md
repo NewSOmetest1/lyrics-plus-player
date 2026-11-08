@@ -143,7 +143,8 @@ Settings are stored in `library.json` in Electron's user-data directory
 ### Providers
 
 Providers are queried top to bottom. Use the arrows to reorder and the checkbox
-to enable/disable. The first provider with lyrics wins.
+to enable/disable. The first provider with synced lyrics wins; a plain-text
+result is used only when no provider returns timestamps.
 
 1. **LRCLIB** — free, no key required.
 2. **Spotify** — requires the `sp_dc` cookie of a logged-in account. The app
