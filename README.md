@@ -36,8 +36,9 @@ Screenshots use the built-in demo library from the browser preview.
   plays 30-second previews and marks unread releases with sidebar/card badges.
 - **Cascading lossless downloader** — queue missing tracks, watch live progress,
   cancel tasks and get an automatic library rescan when a batch finishes. The
-  external engine cascades through Mornye Lossless, Soulseek, Deezer, Bandcamp,
-  SoundCloud and YouTube.
+  engine is an external Python script, so you can plug in a custom downloader
+  for other sources. The reference script cascades through Mornye Lossless,
+  Soulseek, Deezer, Bandcamp, SoundCloud and YouTube.
 - **Listening stats** — all-time totals, top artists and tracks, plus a
   one-click "All-Time Top" playlist.
 - **Lucid UI** — frosted-glass surfaces, cover-colored ambient glow, optional
@@ -97,7 +98,8 @@ Bundles are written under `release/`.
    refresh the feed. Tracks that are missing locally can be sent to the
    download queue.
 5. Configure the downloader in **Settings → Downloader**: Python/venv path,
-   script location and destination music directory.
+   script location and destination music directory. You can point it at your
+   own custom script to download from other sources.
 6. Open **Settings** (gear icon in the sidebar footer) to tune lyrics, folders,
    providers and downloads.
 
@@ -164,6 +166,13 @@ all sources in one click. Removing a source never deletes files from disk.
   empty, so set this before queueing downloads.
 - **Music directory** — where finished files are written. Defaults to
   `~/StreamripDownloads`.
+
+**Custom scripts.** Lyrics+ does not hard-code a download service. You can add
+any Python script as long as it accepts a text file of links as its first
+argument, writes finished files into the configured music directory and prints
+progress to stdout. The built-in parser understands the output format of the
+`spotify-rip-mornye` family (Mornye, Soulseek, Deezer, Bandcamp, SoundCloud,
+YouTube); other scripts can be adapted to the same markers.
 
 Download progress is parsed from the script output. Completion triggers a
 library rescan and refreshes New Releases download badges.
