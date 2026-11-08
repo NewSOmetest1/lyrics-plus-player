@@ -58,7 +58,7 @@ Screenshots use the built-in demo library from the browser preview.
 - Node.js 18+ and npm
 - No Rust toolchain required
 - Optional for downloads: Python 3 and an external cascading downloader script
-  (for example `spotify-rip-mornye`) with its own dependencies
+  with its own dependencies
 - Optional for releases and Spotify lyrics: a Spotify account, signed in
   through Settings → Providers
 
@@ -170,9 +170,7 @@ all sources in one click. Removing a source never deletes files from disk.
 **Custom scripts.** Lyrics+ does not hard-code a download service. You can add
 any Python script as long as it accepts a text file of links as its first
 argument, writes finished files into the configured music directory and prints
-progress to stdout. The built-in parser understands the output format of the
-`spotify-rip-mornye` family (Mornye, Soulseek, Deezer, Bandcamp, SoundCloud,
-YouTube); other scripts can be adapted to the same markers.
+progress to stdout.
 
 Download progress is parsed from the script output. Completion triggers a
 library rescan and refreshes New Releases download badges.
