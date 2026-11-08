@@ -5,6 +5,9 @@ import type {
   LyricsMode,
   LyricsStatus,
   LyricLine,
+  MusicFolderAddResult,
+  MusicFolderRemoveResult,
+  MusicFolderRescanResult,
   NavigationEntry,
   PlaybackSnapshot,
   RepeatMode,
@@ -249,6 +252,12 @@ interface PlayerState {
   setSearch: (search: string) => void;
 
   scan: (paths: string[]) => Promise<void>;
+  addMusicFolder: () => Promise<MusicFolderAddResult | null>;
+  removeMusicFolder: (
+    folderPath: string,
+  ) => Promise<MusicFolderRemoveResult | null>;
+  rescanMusicFolders: () => Promise<MusicFolderRescanResult | null>;
+  refreshLibrary: () => Promise<void>;
   handlePosition: (snapshot: PlaybackSnapshot) => void;
   handleScanProgress: (progress: ScanProgress) => void;
   handleEnded: () => void;
@@ -322,6 +331,11 @@ function navigationState(entry: NavigationEntry): Partial<PlayerState> {
       return {
         ...reset,
         view: "stats",
+      };
+    case "releases":
+      return {
+        ...reset,
+        view: "releases",
       };
     case "search":
       return {
@@ -822,6 +836,107 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     });
   },
 
+  addMusicFolder: async () => {
+    set({
+      scanning: true,
+      scanProgress: { current: 0, total: 0, file: "Choose a music folder…" },
+    });
+    try {
+      const result = await backend.addMusicFolder();
+      if (result.cancelled) {
+        set({ scanning: false, scanProgress: null });
+        return result;
+      }
+      if (result.alreadyExists) {
+        set({ scanning: false, scanProgress: null });
+        useToastStore.getState().push({
+          kind: "info",
+          title: "Folder already in library",
+          description: "This source is already being scanned.",
+        });
+        return result;
+      }
+
+      await get().refreshLibrary();
+      set({ scanning: false, scanProgress: null });
+
+      const summary = result.summary;
+      useToastStore.getState().push({
+        kind: "success",
+        title: "Music folder added",
+        description: summary
+          ? `${summary.added} added · ${summary.updated} refreshed · ${summary.scanned.toLocaleString()} files`
+          : "The source is ready.",
+      });
+      return result;
+    } catch (error) {
+      set({ scanning: false, scanProgress: null });
+      useToastStore.getState().push({
+        kind: "error",
+        title: "Could not add music folder",
+        description: String(error),
+      });
+      return null;
+    }
+  },
+
+  removeMusicFolder: async (folderPath) => {
+    try {
+      const result = await backend.removeMusicFolder(folderPath);
+      await get().refreshLibrary();
+      useToastStore.getState().push({
+        kind: "success",
+        title: "✓ Folder removed and library updated",
+        description: `${result.removedTracks.toLocaleString()} tracks removed · ${result.folders.length} ${result.folders.length === 1 ? "source" : "sources"} remaining`,
+      });
+      return result;
+    } catch (error) {
+      useToastStore.getState().push({
+        kind: "error",
+        title: "Could not remove folder",
+        description: String(error),
+      });
+      return null;
+    }
+  },
+
+  rescanMusicFolders: async () => {
+    set({
+      scanning: true,
+      scanProgress: { current: 0, total: 0, file: "Preparing library…" },
+    });
+    try {
+      const result = await backend.rescanMusicFolders();
+      await get().refreshLibrary();
+      set({ scanning: false, scanProgress: null });
+
+      if (!result.summary) {
+        useToastStore.getState().push({
+          kind: "info",
+          title: "No music folders",
+          description: "Add a source folder before rescanning.",
+        });
+        return result;
+      }
+
+      const summary = result.summary;
+      useToastStore.getState().push({
+        kind: "success",
+        title: "Library rescanned",
+        description: `${summary.scanned.toLocaleString()} scanned · ${summary.added} added · ${(summary.durationMs / 1000).toFixed(1)}s${summary.errors.length > 0 ? ` · ${summary.errors.length} errors` : ""}`,
+      });
+      return result;
+    } catch (error) {
+      set({ scanning: false, scanProgress: null });
+      useToastStore.getState().push({
+        kind: "error",
+        title: "Rescan failed",
+        description: String(error),
+      });
+      return null;
+    }
+  },
+
   scan: async (paths) => {
     set({
       scanning: true,
@@ -872,6 +987,34 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         title: "Scan failed",
         description: String(error),
       });
+    }
+  },
+
+  refreshLibrary: async () => {
+    try {
+      const tracks = await backend.getTracks();
+      const previous = get();
+      const queueWasLibrary =
+        previous.playbackQueue.length === previous.tracks.length &&
+        previous.playbackQueue.every(
+          (track, index) => track.id === previous.tracks[index]?.id,
+        );
+      const playbackQueue = queueWasLibrary ? tracks : previous.playbackQueue;
+      const current = previous.currentTrack
+        ? tracks.find((track) => track.id === previous.currentTrack?.id) ??
+          previous.currentTrack
+        : null;
+      const queueIndex = current
+        ? Math.max(0, playbackQueue.findIndex((track) => track.id === current.id))
+        : 0;
+      set({
+        tracks,
+        currentTrack: current,
+        playbackQueue,
+        queueIndex,
+      });
+    } catch (error) {
+      console.error("[player] could not refresh library:", error);
     }
   },
 

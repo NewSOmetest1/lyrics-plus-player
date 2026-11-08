@@ -38,7 +38,19 @@ import { defaultMusicDir, scanLibrary } from "./scanner";
 import { StatsStore } from "./stats";
 import { LibraryStore } from "./store";
 import { TrackDelayStore } from "./trackDelays";
-import type { ScanProgress } from "./types";
+import {
+  DownloadManager,
+  resolveDownloaderSettings,
+} from "./downloader";
+import { ReleasesStore, resolvePreviewUrl } from "./releases";
+import type {
+  DownloadRequest,
+  MusicFolder,
+  MusicFolderAddResult,
+  MusicFolderRemoveResult,
+  MusicFolderRescanResult,
+  ScanProgress,
+} from "./types";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -58,6 +70,8 @@ let store: LibraryStore;
 let playlists: PlaylistStore;
 let stats: StatsStore;
 let trackDelays: TrackDelayStore;
+let releases: ReleasesStore;
+let downloads: DownloadManager;
 
 /**
  * Fill fileName/mtime for libraries created before AIMP sorting existed, so
@@ -230,6 +244,30 @@ function startResize(event: IpcMainInvokeEvent, direction: string): void {
   }, 16);
 }
 
+async function spotifyStatusPayload(): Promise<{
+  authenticated: boolean;
+  hasSpDc: boolean;
+  hasSpKey: boolean;
+}> {
+  const cookies = await spotifyAuth.readSpotifyCookies(session.defaultSession);
+  const storedDc = store.getSetting("spotify_sp_dc")?.trim() ?? "";
+  const storedKey = store.getSetting("spotify_sp_key")?.trim() ?? "";
+  return {
+    authenticated: Boolean(
+      (cookies.spDc && cookies.spKey) || (storedDc && storedKey),
+    ),
+    hasSpDc: Boolean(cookies.spDc || storedDc),
+    hasSpKey: Boolean(cookies.spKey || storedKey),
+  };
+}
+
+function musicFolderSnapshot(): MusicFolder[] {
+  return store.getMusicFolders().map((folderPath) => ({
+    path: folderPath,
+    trackCount: store.countTracksInFolder(folderPath),
+  }));
+}
+
 function registerIpc(): void {
   ipcMain.handle("get_tracks", () => store.getTracks());
   ipcMain.handle("get_track", (_event, trackId: number) => store.getTrack(trackId) ?? null);
@@ -241,6 +279,85 @@ function registerIpc(): void {
       if (!sender.isDestroyed()) sender.send("scan-progress", progress);
     });
   });
+
+  ipcMain.handle("folders:get", () => musicFolderSnapshot());
+
+  ipcMain.handle("folders:add", async (event): Promise<MusicFolderAddResult> => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    const options: Electron.OpenDialogOptions = {
+      title: "Add music folder",
+      buttonLabel: "Add folder",
+      properties: ["openDirectory"],
+    };
+    const result = window
+      ? await dialog.showOpenDialog(window, options)
+      : await dialog.showOpenDialog(options);
+    if (result.canceled || !result.filePaths[0]) {
+      return {
+        cancelled: true,
+        alreadyExists: false,
+        folders: musicFolderSnapshot(),
+        summary: null,
+      };
+    }
+
+    const folderPath = path.resolve(result.filePaths[0]);
+    if (!store.addMusicFolder(folderPath)) {
+      return {
+        cancelled: false,
+        alreadyExists: true,
+        folders: musicFolderSnapshot(),
+        summary: null,
+      };
+    }
+
+    const sender = event.sender;
+    const summary = await scanLibrary(
+      store,
+      coversDir,
+      [folderPath],
+      (progress: ScanProgress) => {
+        if (!sender.isDestroyed()) sender.send("scan-progress", progress);
+      },
+    );
+    return {
+      cancelled: false,
+      alreadyExists: false,
+      folders: musicFolderSnapshot(),
+      summary,
+    };
+  });
+
+  ipcMain.handle(
+    "folders:remove",
+    (_event, folderPath: unknown): MusicFolderRemoveResult => {
+      if (typeof folderPath !== "string" || folderPath.trim() === "") {
+        throw new Error("A folder path is required");
+      }
+      const removedTracks = store.removeMusicFolder(folderPath);
+      return { folders: musicFolderSnapshot(), removedTracks };
+    },
+  );
+
+  ipcMain.handle(
+    "folders:rescan",
+    async (event): Promise<MusicFolderRescanResult> => {
+      const roots = store.getMusicFolders();
+      if (roots.length === 0) {
+        return { folders: [], summary: null };
+      }
+      const sender = event.sender;
+      const summary = await scanLibrary(
+        store,
+        coversDir,
+        roots,
+        (progress: ScanProgress) => {
+          if (!sender.isDestroyed()) sender.send("scan-progress", progress);
+        },
+      );
+      return { folders: musicFolderSnapshot(), summary };
+    },
+  );
 
   ipcMain.handle(
     "get_lyrics",
@@ -304,18 +421,56 @@ function registerIpc(): void {
     return { ok: true };
   });
 
-  ipcMain.handle("spotify:status", async () => {
-    const cookies = await spotifyAuth.readSpotifyCookies(session.defaultSession);
-    const storedDc = store.getSetting("spotify_sp_dc")?.trim() ?? "";
-    const storedKey = store.getSetting("spotify_sp_key")?.trim() ?? "";
-    return {
-      authenticated: Boolean(
-        (cookies.spDc && cookies.spKey) || (storedDc && storedKey),
-      ),
-      hasSpDc: Boolean(cookies.spDc || storedDc),
-      hasSpKey: Boolean(cookies.spKey || storedKey),
-    };
+  ipcMain.handle("spotify:status", () => spotifyStatusPayload());
+
+  ipcMain.handle("releases:get", async () => {
+    const status = await spotifyStatusPayload();
+    return releases.getFeed(status.authenticated);
   });
+
+  ipcMain.handle("releases:preview", (_event, trackId: unknown) => {
+    return typeof trackId === "string"
+      ? resolvePreviewUrl(trackId)
+      : Promise.resolve(null);
+  });
+
+  ipcMain.handle("releases:sync", async () => {
+    const feed = await releases.sync(
+      { BrowserWindow, session },
+      store,
+    );
+    const status = await spotifyStatusPayload();
+    return { ...feed, authenticated: status.authenticated };
+  });
+
+  ipcMain.handle(
+    "releases:setFollow",
+    async (
+      _event,
+      payload: { name?: unknown; following?: unknown },
+    ) => {
+      const feed = await releases.setFollow(
+        { BrowserWindow, session },
+        store,
+        payload ?? {},
+      );
+      const status = await spotifyStatusPayload();
+      return { ...feed, authenticated: status.authenticated };
+    },
+  );
+
+  ipcMain.handle("downloads:get", () => downloads.getSnapshot());
+  ipcMain.handle("downloads:start", (_event, requests: unknown) => {
+    if (!Array.isArray(requests)) return downloads.getSnapshot();
+    return downloads.start(requests as DownloadRequest[]);
+  });
+  ipcMain.handle("downloads:cancel", (_event, taskId: unknown) => {
+    if (typeof taskId !== "string") return downloads.getSnapshot();
+    return downloads.cancel(taskId);
+  });
+  ipcMain.handle("downloads:clearCompleted", () =>
+    downloads.clearCompleted(),
+  );
 
   ipcMain.handle("get_default_music_dir", () => defaultMusicDir());
 
@@ -485,6 +640,33 @@ app.whenReady().then(async () => {
   playlists = new PlaylistStore(path.join(userData, "playlists.json"));
   stats = new StatsStore(path.join(userData, "stats.json"));
   trackDelays = new TrackDelayStore(path.join(userData, "track-delays.json"));
+  releases = new ReleasesStore(
+    path.join(userData, "followed-artists.json"),
+    store,
+    () => {
+      const settings = resolveDownloaderSettings(store);
+      if (!settings.scriptPath) return "";
+      return path.join(
+        path.dirname(settings.scriptPath),
+        "downloaded_tracks.txt",
+      );
+    },
+  );
+  downloads = new DownloadManager({
+    store,
+    coversDir,
+    userDataDir: userData,
+    getSettings: () => resolveDownloaderSettings(store),
+    onProgress: (snapshot) => send("download:progress", snapshot),
+    onComplete: async (payload) => {
+      const feed = releases.refreshDownloadedStatus();
+      const status = await spotifyStatusPayload();
+      send("download:complete", {
+        ...payload,
+        feed: { ...feed, authenticated: status.authenticated },
+      });
+    },
+  });
   await backfillFileMetadata();
 
   registerMediaProtocol(coversDir);
@@ -508,5 +690,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   stopResize();
+  downloads?.dispose();
+  releases?.dispose();
   destroyDiscordRpc();
 });

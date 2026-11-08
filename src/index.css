@@ -762,6 +762,13 @@ html .artist-card.lucid-glass-panel:hover {
   transform: translateY(-4px) !important;
 }
 
+/* Skip layout/paint for release cards that are outside the viewport. */
+.release-card {
+  content-visibility: auto;
+  contain-intrinsic-size: 260px;
+  contain: layout style paint;
+}
+
 .artist-card-cover {
   border-radius: 50% !important;
   aspect-ratio: 1 / 1;

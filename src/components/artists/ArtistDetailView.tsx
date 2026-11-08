@@ -1,12 +1,14 @@
 import { useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Clock3, Play, Shuffle } from "lucide-react";
+import { ArrowLeft, Clock3, Loader2, Play, Shuffle, Star } from "lucide-react";
 
 import { formatCount, formatTimeLong } from "@/lib/format";
+import { cn } from "@/lib/cn";
 import { useArtistGroups } from "@/hooks/useArtistGroups";
 import { useCoverPalette } from "@/hooks/useCoverPalette";
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePlayerStore } from "@/store/playerStore";
+import { isArtistFollowed, useReleasesStore } from "@/store/releasesStore";
 import { CoverArt } from "@/components/ui/CoverArt";
 import { TrackRow } from "@/components/library/TrackRow";
 
@@ -36,6 +38,14 @@ export function ArtistDetailView() {
   const palette = useCoverPalette(
     artist?.coverUrl ?? null,
     artist?.name ?? "artist",
+  );
+
+  const releaseFeed = useReleasesStore((state) => state.feed);
+  const followPending = useReleasesStore((state) => state.followPending);
+  const setFollowing = useReleasesStore((state) => state.setFollowing);
+  const followed = useMemo(
+    () => isArtistFollowed(releaseFeed, artist?.name ?? ""),
+    [artist?.name, releaseFeed],
   );
 
   useEffect(() => {
@@ -148,6 +158,31 @@ export function ArtistDetailView() {
             >
               <Shuffle className="h-3.5 w-3.5" />
               Shuffle
+            </button>
+            <button
+              type="button"
+              onClick={() => void setFollowing(artist.name, !followed)}
+              disabled={followPending !== null}
+              title={
+                followed
+                  ? `Unfollow ${artist.name} on Spotify`
+                  : `Follow ${artist.name} on Spotify`
+              }
+              className={cn(
+                "flex h-9 items-center gap-2 rounded-full border px-4 text-[11.5px] font-semibold transition active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50",
+                followed
+                  ? "border-accent/30 bg-accent/10 text-accent hover:bg-accent/15"
+                  : "border-white/[0.1] bg-white/[0.05] text-white/60 hover:bg-white/[0.09] hover:text-white",
+              )}
+            >
+              {followPending === artist.name ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Star
+                  className={cn("h-3.5 w-3.5", followed && "fill-current")}
+                />
+              )}
+              {followed ? "Following" : "Follow"}
             </button>
           </div>
         </header>

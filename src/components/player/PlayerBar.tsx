@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Heart,
+  Download,
   ListMusic,
   Maximize2,
   Minimize2,
@@ -14,6 +15,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { usePlayerStore } from "@/store/playerStore";
+import { useDownloadStore } from "@/store/downloadStore";
 import { useTrackMenuStore } from "@/store/contextMenuStore";
 import { useLucidSettingsStore } from "@/store/lucidSettingsStore";
 import { cn } from "@/lib/cn";
@@ -88,6 +90,8 @@ export function PlayerBar({
   const toggleFocus = usePlayerStore((state) => state.toggleFocus);
   const openMenu = useTrackMenuStore((state) => state.openMenu);
   const playerHeight = useLucidSettingsStore((state) => state.playerHeight);
+  const downloadActive = useDownloadStore((state) => state.activeCount);
+  const toggleDownloads = useDownloadStore((state) => state.toggle);
 
   const [liked, setLiked] = useState(false);
 
@@ -335,6 +339,18 @@ export function PlayerBar({
           >
             <ListMusic className="h-4 w-4" strokeWidth={1.7} />
           </IconButton>
+          {downloadActive > 0 && (
+            <button
+              type="button"
+              onClick={toggleDownloads}
+              title="Open downloads"
+              aria-label={`Open downloads, ${downloadActive} active`}
+              className="flex h-8 items-center gap-1.5 rounded-full border border-accent/25 bg-accent-soft px-2.5 text-[10.5px] font-bold tabular-nums text-accent outline-none transition hover:bg-accent/20 focus-visible:ring-2 focus-visible:ring-accent/60"
+            >
+              <Download className="h-3.5 w-3.5" strokeWidth={1.9} />
+              {downloadActive}
+            </button>
+          )}
           <VolumeControl />
           <IconButton
             label={focusMode ? "Exit immersive mode (Esc)" : "Immersive lyrics (F)"}

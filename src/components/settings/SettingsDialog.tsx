@@ -10,6 +10,8 @@ import {
   AudioLines,
   Check,
   ChevronDown,
+  Download,
+  FolderOpen,
   Gamepad2,
   GripVertical,
   KeyRound,
@@ -18,14 +20,16 @@ import {
   PlugZap,
   Plus,
   Palette,
+  RefreshCw,
   RotateCcw,
   Sparkles,
   TextCursorInput,
+  Trash2,
   X,
 } from "lucide-react";
 
 import { backend, isDesktop, type ProviderTestResult } from "@/lib/api";
-import type { LyricsMode } from "@/types";
+import type { LyricsMode, MusicFolder } from "@/types";
 import { usePlayerStore } from "@/store/playerStore";
 import {
   DEFAULT_SETTINGS,
@@ -420,6 +424,53 @@ function DiscordPresenceField({ open }: { open: boolean }) {
   );
 }
 
+function PathField({
+  label,
+  description,
+  value,
+  placeholder,
+  onChange,
+  onBrowse,
+}: {
+  label: string;
+  description: string;
+  value: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+  onBrowse?: () => void;
+}) {
+  return (
+    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+      <p className="text-[11px] font-semibold text-white/70">{label}</p>
+      <p className="mt-0.5 text-[10px] leading-relaxed text-white/25">
+        {description}
+      </p>
+      <div className="mt-2 flex items-center gap-1.5">
+        <input
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          spellCheck={false}
+          autoComplete="off"
+          className="h-8 min-w-0 flex-1 rounded-lg border border-white/[0.08] bg-white/[0.04] px-2.5 font-mono text-[10.5px] text-white placeholder:text-white/20 outline-none transition focus:border-accent/40 focus:bg-white/[0.06]"
+        />
+        {onBrowse && (
+          <button
+            type="button"
+            onClick={onBrowse}
+            title="Choose folder"
+            aria-label={`Choose ${label}`}
+            className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] px-2.5 text-[10px] font-semibold text-white/55 transition hover:bg-white/[0.08] hover:text-white"
+          >
+            <FolderOpen className="h-3 w-3" />
+            Browse
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const settings = useSettingsStore();
   const update = settings.update;
@@ -428,6 +479,9 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const reset = settings.reset;
 
   const currentTrack = usePlayerStore((state) => state.currentTrack);
+  const addMusicFolder = usePlayerStore((state) => state.addMusicFolder);
+  const removeMusicFolder = usePlayerStore((state) => state.removeMusicFolder);
+  const rescanMusicFolders = usePlayerStore((state) => state.rescanMusicFolders);
   const trackDelays = useTrackDelayStore((state) => state.delays);
   const resetAllTrackDelays = useTrackDelayStore((state) => state.resetAll);
   const currentTrackDelay = currentTrack
@@ -435,7 +489,12 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     : 0;
   const hasTrackCalibrations = Object.keys(trackDelays).length > 0;
 
-  const [tab, setTab] = useState<"display" | "providers">("display");
+  const [tab, setTab] = useState<
+    "display" | "providers" | "downloader" | "folders"
+  >("display");
+  const [folders, setFolders] = useState<MusicFolder[]>([]);
+  const [foldersLoading, setFoldersLoading] = useState(false);
+  const [folderAction, setFolderAction] = useState<string | null>(null);
   const [testingProvider, setTestingProvider] = useState<ProviderId | null>(null);
   const [testResults, setTestResults] = useState<
     Partial<Record<ProviderId, "success" | "error">>
@@ -457,6 +516,31 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     setTestResults({});
   }, [open]);
 
+  useEffect(() => {
+    if (!open || tab !== "folders") return;
+    let active = true;
+    setFoldersLoading(true);
+    backend
+      .getMusicFolders()
+      .then((list) => {
+        if (active) setFolders(list);
+      })
+      .catch((error) => {
+        if (!active) return;
+        useToastStore.getState().push({
+          kind: "error",
+          title: "Could not load music folders",
+          description: String(error),
+        });
+      })
+      .finally(() => {
+        if (active) setFoldersLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, tab]);
+
   const resetAll = async () => {
     await reset();
     useToastStore.getState().push({
@@ -474,6 +558,39 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
       title: "Track offsets reset",
       description: "All per-track delays are back to 0 ms.",
     });
+  };
+
+  const handleAddFolder = async () => {
+    if (folderAction) return;
+    setFolderAction("add");
+    try {
+      const result = await addMusicFolder();
+      if (result) setFolders(result.folders);
+    } finally {
+      setFolderAction(null);
+    }
+  };
+
+  const handleRemoveFolder = async (folderPath: string) => {
+    if (folderAction) return;
+    setFolderAction(folderPath);
+    try {
+      const result = await removeMusicFolder(folderPath);
+      if (result) setFolders(result.folders);
+    } finally {
+      setFolderAction(null);
+    }
+  };
+
+  const handleRescanFolders = async () => {
+    if (folderAction) return;
+    setFolderAction("rescan");
+    try {
+      const result = await rescanMusicFolders();
+      if (result) setFolders(result.folders);
+    } finally {
+      setFolderAction(null);
+    }
   };
 
   const testProviderById = async (provider: ProviderId) => {
@@ -560,6 +677,8 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 [
                   { id: "display", label: "Lyrics & Display", icon: TextCursorInput },
                   { id: "providers", label: "Providers", icon: KeyRound },
+                  { id: "folders", label: "Music Folders", icon: FolderOpen },
+                  { id: "downloader", label: "Downloader", icon: Download },
                 ] as const
               ).map((item) => (
                 <button
@@ -950,6 +1069,203 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                       >
                         Follow cover palette
                       </button>
+                    </div>
+                  </Section>
+                </>
+              ) : tab === "folders" ? (
+                <>
+                  <Section
+                    icon={<FolderOpen className="h-3.5 w-3.5" />}
+                    title="Music folders"
+                    description="Sources scanned into your local library"
+                  >
+                    <div className="flex items-center justify-between text-[10px] font-medium text-white/30">
+                      <span>
+                        {folders.length} active{" "}
+                        {folders.length === 1 ? "source" : "sources"}
+                      </span>
+                      <span className="tabular-nums">
+                        {folders
+                          .reduce(
+                            (total, folder) => total + folder.trackCount,
+                            0,
+                          )
+                          .toLocaleString()}{" "}
+                        tracks indexed
+                      </span>
+                    </div>
+
+                    {foldersLoading ? (
+                      <div className="flex items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-3 text-[10.5px] text-white/35">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Loading sources…
+                      </div>
+                    ) : folders.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-white/[0.09] bg-white/[0.015] px-4 py-5 text-center">
+                        <FolderOpen className="mx-auto h-6 w-6 text-white/20" />
+                        <p className="mt-2 text-[11px] font-semibold text-white/55">
+                          No music folders yet
+                        </p>
+                        <p className="mt-0.5 text-[10px] text-white/25">
+                          Add a folder and its tracks will appear in your
+                          library.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {folders.map((folder) => {
+                          const busy = folderAction === folder.path;
+                          const disabled = !isDesktop || Boolean(folderAction);
+                          return (
+                            <div
+                              key={folder.path}
+                              className={cn(
+                                "group flex items-center gap-2.5 rounded-xl border px-2.5 py-2 transition",
+                                busy
+                                  ? "border-red-400/25 bg-red-500/[0.06]"
+                                  : "border-white/[0.07] bg-white/[0.03] hover:border-white/[0.12] hover:bg-white/[0.05]",
+                              )}
+                            >
+                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--accent-soft)] text-[var(--accent)]">
+                                <FolderOpen className="h-4 w-4" />
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <p
+                                  className="truncate text-[11px] font-semibold text-white/80"
+                                  title={folder.path}
+                                >
+                                  {folder.path}
+                                </p>
+                                <p className="text-[10px] tabular-nums text-white/30">
+                                  {folder.trackCount.toLocaleString()}{" "}
+                                  {folder.trackCount === 1 ? "track" : "tracks"}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleRemoveFolder(folder.path)
+                                }
+                                disabled={disabled}
+                                title={`Remove ${folder.path} from the library`}
+                                className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-red-400/20 bg-red-500/[0.08] px-2 py-1.5 text-[10px] font-semibold text-red-300 transition hover:border-red-400/35 hover:bg-red-500/15 hover:text-red-200 disabled:pointer-events-none disabled:opacity-40"
+                              >
+                                {busy ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-3 w-3" />
+                                )}
+                                Remove
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleAddFolder()}
+                        disabled={!isDesktop || Boolean(folderAction)}
+                        className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[var(--accent)] px-3 py-2 text-[11px] font-bold text-black shadow-[0_0_18px_var(--accent-glow)] transition hover:brightness-110 active:scale-[0.99] disabled:pointer-events-none disabled:opacity-40"
+                      >
+                        {folderAction === "add" ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Plus className="h-3.5 w-3.5" />
+                        )}
+                        Add Music Folder
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleRescanFolders()}
+                        disabled={
+                          !isDesktop ||
+                          Boolean(folderAction) ||
+                          folders.length === 0
+                        }
+                        className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 py-2 text-[11px] font-semibold text-white/60 transition hover:border-accent/30 hover:bg-white/[0.08] hover:text-white disabled:pointer-events-none disabled:opacity-40"
+                      >
+                        {folderAction === "rescan" ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        )}
+                        Rescan Library
+                      </button>
+                    </div>
+
+                    <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-3 py-2">
+                      <p className="text-[10px] leading-relaxed text-white/25">
+                        Removing a source detaches it from Lyrics+ and deletes
+                        its tracks from the library immediately. Audio files on
+                        disk are never deleted.
+                      </p>
+                      {!isDesktop && (
+                        <p className="mt-1 text-[10px] font-medium text-amber-300/70">
+                          Folder management is available in the desktop app.
+                        </p>
+                      )}
+                    </div>
+                  </Section>
+                </>
+              ) : tab === "downloader" ? (
+                <>
+                  <Section
+                    icon={<Download className="h-3.5 w-3.5" />}
+                    title="Cascading FLAC downloader"
+                    description="Python engine, script location and destination folder"
+                  >
+                    <div className="space-y-2.5">
+                      <PathField
+                        label="Python / Venv Path"
+                        description="Interpreter used to run the script. A virtualenv interpreter is fine."
+                        value={settings.downloaderPythonPath}
+                        placeholder="python3"
+                        onChange={(value) =>
+                          update({ downloaderPythonPath: value })
+                        }
+                      />
+                      <PathField
+                        label="Downloader Script Path"
+                        description="Path to spotify-rip-mornye-v3.py or a compatible cascade script."
+                        value={settings.downloaderScriptPath}
+                        placeholder="/path/to/spotify-rip.py"
+                        onChange={(value) =>
+                          update({ downloaderScriptPath: value })
+                        }
+                      />
+                      <PathField
+                        label="Music Directory"
+                        description="Where finished FLAC files are written. Defaults to ~/StreamripDownloads."
+                        value={settings.downloaderMusicDir}
+                        placeholder="~/StreamripDownloads"
+                        onChange={(value) =>
+                          update({ downloaderMusicDir: value })
+                        }
+                        onBrowse={() => {
+                          void backend
+                            .pickFolder()
+                            .then((folder) => {
+                              if (folder) {
+                                update({ downloaderMusicDir: folder });
+                              }
+                            })
+                            .catch(() => undefined);
+                        }}
+                      />
+                    </div>
+
+                    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                      <p className="text-[10px] leading-relaxed text-white/30">
+                        Downloads cascade through Mornye Lossless, Soulseek P2P,
+                        Deezer (Streamrip), Bandcamp, SoundCloud and YouTube. The
+                        script runs with cover fixing enabled, so rectangular
+                        artwork is center-cropped to 1:1 before it reaches the
+                        library. Python dependencies and yt-dlp must be
+                        installed for the selected interpreter.
+                      </p>
                     </div>
                   </Section>
                 </>

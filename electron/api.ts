@@ -1,12 +1,40 @@
 import type {
   LyricsPayload,
+  MusicFolder,
+  MusicFolderAddResult,
+  MusicFolderRemoveResult,
+  MusicFolderRescanResult,
   Playlist,
   ScanProgress,
   ScanSummary,
   TrackRecord,
 } from "./types";
 
-export type { LyricsPayload, Playlist, ScanProgress, ScanSummary, TrackRecord };
+export type {
+  LyricsPayload,
+  MusicFolder,
+  MusicFolderAddResult,
+  MusicFolderRemoveResult,
+  MusicFolderRescanResult,
+  Playlist,
+  ScanProgress,
+  ScanSummary,
+  TrackRecord,
+};
+export type {
+  ArtistSource,
+  DownloadCompleteEvent,
+  DownloadRequest,
+  DownloadSnapshot,
+  DownloadStage,
+  DownloadTask,
+  DownloadTaskStatus,
+  FollowedArtist,
+  ReleaseFeed,
+  ReleaseRecord,
+  ReleaseTrack,
+  ReleaseType,
+} from "./types";
 
 export interface SpotifyAuthStatus {
   authenticated: boolean;

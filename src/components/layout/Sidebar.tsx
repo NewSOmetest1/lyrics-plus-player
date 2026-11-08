@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import {
   BarChart3,
+  Bell,
   Disc3,
   FolderPlus,
   Library,
@@ -17,12 +18,16 @@ import {
   UserRound,
 } from "lucide-react";
 import type { Track } from "@/types";
-import { backend, isDesktop } from "@/lib/api";
+import { isDesktop } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { usePlayerStore } from "@/store/playerStore";
 import { usePlaylistDialogStore } from "@/store/playlistDialogStore";
 import { usePlaylistStore } from "@/store/playlistStore";
 import { useLucidSettingsStore } from "@/store/lucidSettingsStore";
+import {
+  countUnseenReleases,
+  useReleasesStore,
+} from "@/store/releasesStore";
 import { useToastStore } from "@/store/toastStore";
 import { CoverArt } from "@/components/ui/CoverArt";
 import { IconButton } from "@/components/ui/IconButton";
@@ -41,6 +46,7 @@ interface AlbumGroup {
 const navItems = [
   { id: "library", label: "Library", icon: Library },
   { id: "artists", label: "Artists", icon: UserRound },
+  { id: "releases", label: "New Releases", icon: Bell },
   { id: "stats", label: "Stats", icon: BarChart3 },
   { id: "now-playing", label: "Now Playing", icon: Disc3 },
   { id: "search", label: "Search", icon: Search },
@@ -92,11 +98,18 @@ export function Sidebar({
   const navigate = usePlayerStore((state) => state.navigate);
   const toggleFocus = usePlayerStore((state) => state.toggleFocus);
   const scan = usePlayerStore((state) => state.scan);
+  const addMusicFolder = usePlayerStore((state) => state.addMusicFolder);
 
   const playlists = usePlaylistStore((state) => state.playlists);
   const importM3U = usePlaylistStore((state) => state.importM3U);
   const openCreatePlaylist = usePlaylistDialogStore((state) => state.openCreate);
   const openLucidDialog = useLucidSettingsStore((state) => state.openDialog);
+  const releaseFeed = useReleasesStore((state) => state.feed);
+  const seenReleaseIds = useReleasesStore((state) => state.seenReleaseIds);
+  const newReleaseCount = useMemo(
+    () => countUnseenReleases(releaseFeed, seenReleaseIds),
+    [releaseFeed, seenReleaseIds],
+  );
 
   useEffect(() => {
     const element = asideRef.current;
@@ -187,6 +200,10 @@ export function Sidebar({
       navigate({ type: "artists" });
       return;
     }
+    if (id === "releases") {
+      navigate({ type: "releases" });
+      return;
+    }
     if (id === "stats") {
       navigate({ type: "stats" });
       return;
@@ -214,6 +231,7 @@ export function Sidebar({
       );
     }
     if (id === "stats") return view === "stats";
+    if (id === "releases") return view === "releases";
     if (id === "now-playing") return view === "player" && !focusMode;
     if (id === "karaoke") return focusMode;
     return false;
@@ -221,16 +239,16 @@ export function Sidebar({
 
   const pickFolder = async () => {
     try {
-      const folder = await backend.pickFolder();
-      if (folder) await scan([folder]);
-      else if (!isDesktop) {
+      if (!isDesktop) {
         useToastStore.getState().push({
           kind: "info",
           title: "Desktop folder picker",
           description: "The browser preview scans a simulated library. Run the desktop app to add folders.",
         });
         await scan([]);
+        return;
       }
+      await addMusicFolder();
     } catch (error) {
       useToastStore.getState().push({
         kind: "error",
@@ -293,6 +311,21 @@ export function Sidebar({
               >
                 {item.label}
               </span>
+              {item.id === "releases" && newReleaseCount > 0 && (
+                <span
+                  aria-label={`${newReleaseCount} new release${
+                    newReleaseCount === 1 ? "" : "s"
+                  }`}
+                  className={cn(
+                    "z-10 shrink-0 rounded-full bg-accent font-bold text-black",
+                    compact
+                      ? "absolute right-1.5 top-1.5 h-1.5 w-1.5 ring-2 ring-[#0b0b0e]/80"
+                      : "ml-auto min-w-[18px] px-1.5 py-0.5 text-center text-[9.5px] tabular-nums",
+                  )}
+                >
+                  {compact ? "" : newReleaseCount > 99 ? "99+" : newReleaseCount}
+                </span>
+              )}
               {item.id === "karaoke" && (
                 <span
                   aria-hidden={compact}

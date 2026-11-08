@@ -1,8 +1,16 @@
 import type {
   DiscordPresence,
+  DownloadCompleteEvent,
+  DownloadRequest,
+  DownloadSnapshot,
   LyricsPayload,
+  MusicFolder,
+  MusicFolderAddResult,
+  MusicFolderRemoveResult,
+  MusicFolderRescanResult,
   PlaybackSnapshot,
   Playlist,
+  ReleaseFeed,
   ScanProgress,
   ScanSummary,
   StatsData,
@@ -26,6 +34,23 @@ const POSITION_INTERVAL_MS = 100;
 const DEMO_PLAYLISTS_KEY = "lyricsplus.demoPlaylists";
 const DEMO_STATS_KEY = "lyricsplus.demoStats";
 const DEMO_TRACK_DELAYS_KEY = "lyricsplus.demoTrackDelays";
+
+const EMPTY_DOWNLOAD_SNAPSHOT: DownloadSnapshot = {
+  tasks: [],
+  activeCount: 0,
+  completedCount: 0,
+};
+
+function emptyReleaseFeed(): ReleaseFeed {
+  return {
+    version: 1,
+    artists: [],
+    releases: [],
+    lastSyncedAt: null,
+    lastSyncWarnings: [],
+    authenticated: false,
+  };
+}
 
 const TRACK_DELAY_LIMIT_MS = 10_000;
 
@@ -791,6 +816,54 @@ export const backend = {
     return electronApi().selectFolder();
   },
 
+  async getMusicFolders(): Promise<MusicFolder[]> {
+    if (!isElectron) {
+      return [{ path: "~/Music/demo", trackCount: DEMO_TRACKS.length }];
+    }
+    return electronApi().invoke<MusicFolder[]>("folders:get");
+  },
+
+  async addMusicFolder(): Promise<MusicFolderAddResult> {
+    if (!isElectron) {
+      return {
+        cancelled: true,
+        alreadyExists: false,
+        folders: [{ path: "~/Music/demo", trackCount: DEMO_TRACKS.length }],
+        summary: null,
+      };
+    }
+    return electronApi().invoke<MusicFolderAddResult>("folders:add");
+  },
+
+  async removeMusicFolder(folderPath: string): Promise<MusicFolderRemoveResult> {
+    if (!isElectron) {
+      return {
+        folders: [{ path: "~/Music/demo", trackCount: DEMO_TRACKS.length }],
+        removedTracks: 0,
+      };
+    }
+    return electronApi().invoke<MusicFolderRemoveResult>(
+      "folders:remove",
+      folderPath,
+    );
+  },
+
+  async rescanMusicFolders(): Promise<MusicFolderRescanResult> {
+    if (!isElectron) {
+      return {
+        folders: [{ path: "~/Music/demo", trackCount: DEMO_TRACKS.length }],
+        summary: {
+          scanned: DEMO_TRACKS.length,
+          added: 0,
+          updated: DEMO_TRACKS.length,
+          errors: [],
+          durationMs: 840,
+        },
+      };
+    }
+    return electronApi().invoke<MusicFolderRescanResult>("folders:rescan");
+  },
+
   async getPlaylists(): Promise<Playlist[]> {
     if (!isElectron) return readDemoPlaylists();
     return electronApi().invoke<Playlist[]>("playlists:getAll");
@@ -1029,6 +1102,75 @@ export const backend = {
       return { authenticated: false, hasSpDc: false, hasSpKey: false };
     }
     return electronApi().invoke<SpotifyAuthStatus>("spotify:status");
+  },
+
+  async getReleaseFeed(): Promise<ReleaseFeed> {
+    if (!isElectron) return emptyReleaseFeed();
+    return electronApi().invoke<ReleaseFeed>("releases:get");
+  },
+
+  async syncReleases(): Promise<ReleaseFeed> {
+    if (!isElectron) {
+      throw new Error("New Releases sync needs the Electron desktop app.");
+    }
+    return electronApi().invoke<ReleaseFeed>("releases:sync");
+  },
+
+  async setArtistFollow(
+    name: string,
+    following: boolean,
+  ): Promise<ReleaseFeed> {
+    if (!isElectron) {
+      throw new Error("Artist following needs the Electron desktop app.");
+    }
+    return electronApi().invoke<ReleaseFeed>("releases:setFollow", {
+      name,
+      following,
+    });
+  },
+
+  async getReleasePreview(trackId: string): Promise<string | null> {
+    if (!isElectron) return null;
+    return electronApi().invoke<string | null>("releases:preview", trackId);
+  },
+
+  async getDownloads(): Promise<DownloadSnapshot> {
+    if (!isElectron) return EMPTY_DOWNLOAD_SNAPSHOT;
+    return electronApi().invoke<DownloadSnapshot>("downloads:get");
+  },
+
+  async startDownloads(
+    tracks: DownloadRequest[],
+  ): Promise<DownloadSnapshot> {
+    if (!isElectron) return EMPTY_DOWNLOAD_SNAPSHOT;
+    return electronApi().invoke<DownloadSnapshot>("downloads:start", tracks);
+  },
+
+  async cancelDownload(taskId: string): Promise<DownloadSnapshot> {
+    if (!isElectron) return EMPTY_DOWNLOAD_SNAPSHOT;
+    return electronApi().invoke<DownloadSnapshot>("downloads:cancel", taskId);
+  },
+
+  async clearCompletedDownloads(): Promise<DownloadSnapshot> {
+    if (!isElectron) return EMPTY_DOWNLOAD_SNAPSHOT;
+    return electronApi().invoke<DownloadSnapshot>("downloads:clearCompleted");
+  },
+
+  onDownloadProgress(
+    listener: (snapshot: DownloadSnapshot) => void,
+  ): () => void {
+    if (!isElectron) return () => undefined;
+    return electronApi().on<DownloadSnapshot>("download:progress", listener);
+  },
+
+  onDownloadComplete(
+    listener: (payload: DownloadCompleteEvent) => void,
+  ): () => void {
+    if (!isElectron) return () => undefined;
+    return electronApi().on<DownloadCompleteEvent>(
+      "download:complete",
+      listener,
+    );
   },
 
   async updateDiscordPresence(presence: DiscordPresence | null): Promise<void> {

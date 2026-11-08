@@ -50,7 +50,15 @@ export interface ClientSettings {
   providers: ProviderSetting[];
   /** Priority used when loaded lyrics support more than one display mode. */
   syncModes: SyncModeSetting[];
+
+  /** External cascading downloader settings. */
+  downloaderPythonPath: string;
+  downloaderScriptPath: string;
+  downloaderMusicDir: string;
 }
+
+export const DEFAULT_DOWNLOADER_SCRIPT_PATH = "";
+export const DEFAULT_DOWNLOADER_MUSIC_DIR = "~/StreamripDownloads";
 
 export const DEFAULT_SETTINGS: ClientSettings = {
   lyricsOffset: 0,
@@ -81,6 +89,9 @@ export const DEFAULT_SETTINGS: ClientSettings = {
     { id: "synced", enabled: true },
     { id: "unsynced", enabled: true },
   ],
+  downloaderPythonPath: "python3",
+  downloaderScriptPath: DEFAULT_DOWNLOADER_SCRIPT_PATH,
+  downloaderMusicDir: DEFAULT_DOWNLOADER_MUSIC_DIR,
 };
 
 export const SETTINGS_LIMITS = {
@@ -111,6 +122,9 @@ const KEYS: Record<Exclude<keyof ClientSettings, "providers" | "syncModes">, str
   activeTextColor: "lyrics_color_active",
   inactiveTextColor: "lyrics_color_inactive",
   accentColor: "ui_accent",
+  downloaderPythonPath: "downloader_python_path",
+  downloaderScriptPath: "downloader_script_path",
+  downloaderMusicDir: "downloader_music_dir",
 };
 
 const PROVIDERS_KEY = "lyrics_providers";
@@ -296,6 +310,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       activeTextColor: raw.activeTextColor || DEFAULT_SETTINGS.activeTextColor,
       inactiveTextColor: raw.inactiveTextColor || DEFAULT_SETTINGS.inactiveTextColor,
       accentColor: raw.accentColor || DEFAULT_SETTINGS.accentColor,
+      downloaderPythonPath:
+        raw.downloaderPythonPath || DEFAULT_SETTINGS.downloaderPythonPath,
+      downloaderScriptPath:
+        raw.downloaderScriptPath || DEFAULT_SETTINGS.downloaderScriptPath,
+      downloaderMusicDir:
+        raw.downloaderMusicDir || DEFAULT_SETTINGS.downloaderMusicDir,
       providers,
       syncModes,
       loaded: true,

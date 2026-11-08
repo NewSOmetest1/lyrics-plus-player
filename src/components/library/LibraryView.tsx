@@ -17,7 +17,7 @@ import {
   X,
 } from "lucide-react";
 import type { LibrarySection, Track } from "@/types";
-import { backend, isDesktop } from "@/lib/api";
+import { isDesktop } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatCount, formatTime, formatTimeLong } from "@/lib/format";
 import {
@@ -99,6 +99,7 @@ export function LibraryView() {
   const playTrack = usePlayerStore((state) => state.playTrack);
   const setSearch = usePlayerStore((state) => state.setSearch);
   const scan = usePlayerStore((state) => state.scan);
+  const addMusicFolder = usePlayerStore((state) => state.addMusicFolder);
   const openMenu = useTrackMenuStore((state) => state.openMenu);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -243,17 +244,16 @@ export function LibraryView() {
 
   const addFolder = async () => {
     try {
-      const folder = await backend.pickFolder();
-      if (folder) {
-        await scan([folder]);
-      } else if (!isDesktop) {
+      if (!isDesktop) {
         useToastStore.getState().push({
           kind: "info",
           title: "Browser preview",
           description: "Folder picking is available in the desktop app.",
         });
         await scan([]);
+        return;
       }
+      await addMusicFolder();
     } catch (error) {
       useToastStore.getState().push({
         kind: "error",

@@ -7,7 +7,10 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import { usePlayerStore } from "@/store/playerStore";
 import { usePlaylistStore } from "@/store/playlistStore";
-import { subscribePlayback } from "@/lib/api";
+import { useReleasesStore } from "@/store/releasesStore";
+import { useDownloadStore } from "@/store/downloadStore";
+import { useToastStore } from "@/store/toastStore";
+import { backend, subscribePlayback } from "@/lib/api";
 import { useNavigation } from "@/hooks/useNavigation";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useLucidSettingsStore } from "@/store/lucidSettingsStore";
@@ -25,6 +28,8 @@ import { LibraryView } from "@/components/library/LibraryView";
 import { ArtistDetailView } from "@/components/artists/ArtistDetailView";
 import { PlaylistView } from "@/components/playlists/PlaylistView";
 import { StatsView } from "@/components/stats/StatsView";
+import { NewReleasesView } from "@/components/releases/NewReleasesView";
+import { DownloadDrawer } from "@/components/releases/DownloadDrawer";
 import { PlaylistDialog } from "@/components/playlists/PlaylistDialog";
 import { TrackContextMenu } from "@/components/playlists/TrackContextMenu";
 import { LucidSettingsDialog } from "@/components/settings/LucidSettingsDialog";
@@ -384,6 +389,8 @@ export default function App() {
     void useSettingsStore.getState().init();
     void useTrackDelayStore.getState().init();
     void usePlaylistStore.getState().init();
+    void useReleasesStore.getState().init();
+    void useDownloadStore.getState().init();
     useLucidSettingsStore.getState().init();
   }, []);
 
@@ -404,6 +411,38 @@ export default function App() {
     return () => {
       disposed = true;
       unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    const offProgress = backend.onDownloadProgress((snapshot) => {
+      useDownloadStore.getState().applySnapshot(snapshot);
+    });
+
+    const offComplete = backend.onDownloadComplete((payload) => {
+      useDownloadStore.getState().applySnapshot(payload.snapshot);
+      useReleasesStore.getState().applyFeed(payload.feed);
+      void usePlayerStore.getState().refreshLibrary();
+
+      for (const task of payload.completed) {
+        useToastStore.getState().push({
+          kind: "success",
+          title: `✓ Downloaded: ${task.artist} - ${task.title} (FLAC)`,
+          description: task.message ?? task.source ?? undefined,
+        });
+      }
+      for (const task of payload.failed) {
+        useToastStore.getState().push({
+          kind: "error",
+          title: `Download failed: ${task.artist} - ${task.title}`,
+          description: task.message ?? "The downloader could not finish this track.",
+        });
+      }
+    });
+
+    return () => {
+      offProgress();
+      offComplete();
     };
   }, []);
 
@@ -635,6 +674,8 @@ export default function App() {
                 <PlaylistView />
               ) : view === "stats" ? (
                 <StatsView />
+              ) : view === "releases" ? (
+                <NewReleasesView />
               ) : view === "library" ? (
                 <LibraryView />
               ) : (
@@ -684,6 +725,7 @@ export default function App() {
         rightPanelOpen={rightPanelVisible}
         onToggleRightPanel={toggleRightPanel}
       />
+      <DownloadDrawer />
       <QueuePanel />
       <TrackContextMenu />
       <PlaylistDialog />

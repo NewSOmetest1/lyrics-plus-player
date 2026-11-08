@@ -1,6 +1,25 @@
 export const LYRICS_MODES = ["karaoke", "synced", "unsynced"] as const;
 export type LyricsMode = (typeof LYRICS_MODES)[number];
 
+export type {
+  ArtistSource,
+  DownloadCompleteEvent,
+  DownloadRequest,
+  DownloadSnapshot,
+  DownloadStage,
+  DownloadTask,
+  DownloadTaskStatus,
+  FollowedArtist,
+  MusicFolder,
+  MusicFolderAddResult,
+  MusicFolderRemoveResult,
+  MusicFolderRescanResult,
+  ReleaseFeed,
+  ReleaseRecord,
+  ReleaseTrack,
+  ReleaseType,
+} from "../electron/api";
+
 /** Accept persisted/legacy mode ids regardless of case or surrounding spaces. */
 export function normalizeLyricsMode(value: unknown): LyricsMode | null {
   const id = String(value ?? "").trim().toLowerCase();
@@ -14,7 +33,8 @@ export type AppView =
   | "player"
   | "playlist"
   | "artist"
-  | "stats";
+  | "stats"
+  | "releases";
 export type LibrarySection = "tracks" | "albums" | "artists" | "playlists";
 
 export type NavigationEntry =
@@ -24,6 +44,7 @@ export type NavigationEntry =
   | { type: "playlist"; playlistId: string }
   | { type: "karaoke" }
   | { type: "stats" }
+  | { type: "releases" }
   | { type: "search"; query?: string };
 
 export type RepeatMode = "off" | "all" | "one";
