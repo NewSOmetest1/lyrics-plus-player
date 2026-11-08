@@ -1,5 +1,7 @@
 # Lyrics+
 
+**English** · [Русский](README.ru.md)
+
 A local-first desktop music player for Linux with karaoke-grade lyrics, a
 Spotify release feed and a cascading lossless downloader. Built with
 **Electron 45 (Chromium)**, **React 18**, **TypeScript**, **Tailwind**,
