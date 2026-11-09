@@ -5,6 +5,9 @@ import { usePlayerStore } from "@/store/playerStore";
 import type { Track } from "@/types";
 
 const ARTWORK_CACHE_LIMIT = 24;
+const ARTWORK_MAX_SIDE = 512;
+const ARTWORK_MAX_BYTES = 20_000_000;
+const ARTWORK_MAX_DATA_URL = 1_800_000;
 const artworkCache = new Map<string, string>();
 
 function blobToDataUrl(blob: Blob): Promise<string> {
@@ -17,6 +20,38 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 /**
+ * Chromium rejects MediaMetadata artwork whose data URL exceeds its URL
+ * length limit and dumps the whole base64 string to the terminal. Downscale
+ * covers to 512 px before encoding so MPRIS gets a compact image.
+ */
+async function blobToArtworkDataUrl(blob: Blob): Promise<string> {
+  try {
+    const bitmap = await createImageBitmap(blob);
+    try {
+      const scale = Math.min(
+        1,
+        ARTWORK_MAX_SIDE / Math.max(bitmap.width, bitmap.height),
+      );
+      const width = Math.max(1, Math.round(bitmap.width * scale));
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d");
+      if (!context) return blobToDataUrl(blob);
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = "high";
+      context.drawImage(bitmap, 0, 0, width, height);
+      return canvas.toDataURL("image/jpeg", 0.85);
+    } finally {
+      bitmap.close();
+    }
+  } catch {
+    return blobToDataUrl(blob);
+  }
+}
+
+/**
  * Chromium writes downsampled MPRIS artwork to a temp file, but it only does so
  * for URLs it can fetch itself. Our custom media:// covers are readable by the
  * renderer, not by the desktop shell, so convert them into data URLs.
@@ -25,7 +60,9 @@ async function artworkDataUrl(track: Track | null): Promise<string | null> {
   if (!track) return null;
   const url = coverUrl(track, true);
   if (!url) return null;
-  if (url.startsWith("data:")) return url;
+  if (url.startsWith("data:")) {
+    return url.length > ARTWORK_MAX_DATA_URL ? null : url;
+  }
 
   const cached = artworkCache.get(url);
   if (cached) return cached;
@@ -33,10 +70,10 @@ async function artworkDataUrl(track: Track | null): Promise<string | null> {
     const response = await fetch(url);
     if (!response.ok) return url;
     const blob = await response.blob();
-    // MPRIS writes all artwork to /tmp. Avoid turning monster scans into IPC
-    // payloads; normal embedded covers are far below this.
-    if (blob.size === 0 || blob.size > 2_500_000) return url;
-    const data = await blobToDataUrl(blob);
+    // Keep the encoded data URL below Chromium's MediaImage URL limit.
+    if (blob.size === 0 || blob.size > ARTWORK_MAX_BYTES) return url;
+    const data = await blobToArtworkDataUrl(blob);
+    if (data.length > ARTWORK_MAX_DATA_URL) return url;
     artworkCache.set(url, data);
     if (artworkCache.size > ARTWORK_CACHE_LIMIT) {
       const oldest = artworkCache.keys().next().value;
