@@ -364,12 +364,15 @@ export default function App() {
     );
   };
 
-  const rightPanelVisible = isRightOpen && view === "player" && !focusMode;
+  const isPlayerSurface = view === "player" || view === "karaoke";
+  const rightPanelVisible = isRightOpen && isPlayerSurface && !focusMode;
 
   const openRightPanel = () => {
     const store = usePlayerStore.getState();
     if (store.focusMode) store.toggleFocus();
-    if (store.view !== "player") store.setView("player");
+    if (store.view !== "player" && store.view !== "karaoke") {
+      store.setView("player");
+    }
     setRightPanelWidth((width) =>
       width < 200 ? RIGHT_PANEL_LIMITS.restore : width,
     );
@@ -512,7 +515,7 @@ export default function App() {
         !event.altKey &&
         event.key.toLowerCase() === "f"
       ) {
-        if (store.view === "player") {
+        if (store.view === "player" || store.view === "karaoke") {
           event.preventDefault();
           window.dispatchEvent(new CustomEvent("lyricsplus:lyrics-search"));
         }
@@ -576,7 +579,12 @@ export default function App() {
           break;
         case "[":
         case "]": {
-          if (store.view !== "player" || !store.currentTrack) break;
+          if (
+            (store.view !== "player" && store.view !== "karaoke") ||
+            !store.currentTrack
+          ) {
+            break;
+          }
           event.preventDefault();
           const delta = event.key === "[" ? -TRACK_DELAY_STEP : TRACK_DELAY_STEP;
           const nextDelay = useTrackDelayStore
@@ -685,7 +693,7 @@ export default function App() {
           </AnimatePresence>
         </main>
 
-        {!focusMode && view === "player" && (
+        {!focusMode && isPlayerSurface && (
           <>
             {isRightOpen ? (
               <PanelResizeHandle

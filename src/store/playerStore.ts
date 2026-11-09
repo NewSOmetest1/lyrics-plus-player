@@ -322,10 +322,15 @@ function navigationState(entry: NavigationEntry): Partial<PlayerState> {
         view: "playlist",
         selectedPlaylistId: entry.playlistId,
       };
-    case "karaoke":
+    case "now-playing":
       return {
         ...reset,
         view: "player",
+      };
+    case "karaoke":
+      return {
+        ...reset,
+        view: "karaoke",
       };
     case "stats":
       return {
@@ -450,8 +455,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   playTrack: async (track, startMs = 0, queue) => {
-    const { tracks } = get();
-    if (get().view !== "player") get().navigate({ type: "karaoke" });
+    const { tracks, view: currentView } = get();
+    if (currentView !== "player" && currentView !== "karaoke") {
+      get().navigate({ type: "karaoke" });
+    }
     const playbackQueue = queue && queue.length > 0 ? queue : tracks;
     const index = playbackQueue.findIndex((item) => item.id === track.id);
     const start = Math.max(0, Math.min(startMs, track.durationMs || startMs));
@@ -463,7 +470,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       currentTrack: track,
       playbackQueue,
       queueIndex: index >= 0 ? index : 0,
-      view: "player",
+      view: currentView === "karaoke" ? "karaoke" : "player",
       durationMs: track.durationMs,
       positionMs: start,
       isPlaying: true,
@@ -716,6 +723,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   setView: (view) => {
     const state = get();
+    if (view === "player") {
+      state.navigate({ type: "now-playing" });
+      return;
+    }
+    if (view === "karaoke") {
+      state.navigate({ type: "karaoke" });
+      return;
+    }
     if (view === "library") {
       state.navigate(
         state.librarySection === "artists"
@@ -813,7 +828,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   toggleFocus: () => {
     const { focusMode, view } = get();
-    if (!focusMode && view !== "player") {
+    if (!focusMode && view !== "player" && view !== "karaoke") {
       get().navigate({ type: "karaoke" });
     }
     set({ focusMode: !focusMode });

@@ -31,6 +31,7 @@ export function normalizeLyricsMode(value: unknown): LyricsMode | null {
 export type AppView =
   | "library"
   | "player"
+  | "karaoke"
   | "playlist"
   | "artist"
   | "stats"
@@ -42,6 +43,7 @@ export type NavigationEntry =
   | { type: "artists" }
   | { type: "artist-detail"; artistId: string }
   | { type: "playlist"; playlistId: string }
+  | { type: "now-playing" }
   | { type: "karaoke" }
   | { type: "stats" }
   | { type: "releases" }

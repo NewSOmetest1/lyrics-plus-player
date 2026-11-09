@@ -3,8 +3,6 @@ import {
   Heart,
   Download,
   ListMusic,
-  Maximize2,
-  Minimize2,
   Pause,
   Play,
   Repeat,
@@ -79,7 +77,6 @@ export function PlayerBar({
   const durationMs = usePlayerStore((state) => state.durationMs);
   const repeat = usePlayerStore((state) => state.repeat);
   const shuffle = usePlayerStore((state) => state.shuffle);
-  const focusMode = usePlayerStore((state) => state.focusMode);
 
   const togglePlay = usePlayerStore((state) => state.togglePlay);
   const next = usePlayerStore((state) => state.next);
@@ -87,7 +84,6 @@ export function PlayerBar({
   const seek = usePlayerStore((state) => state.seek);
   const toggleRepeat = usePlayerStore((state) => state.toggleRepeat);
   const toggleShuffle = usePlayerStore((state) => state.toggleShuffle);
-  const toggleFocus = usePlayerStore((state) => state.toggleFocus);
   const openMenu = useTrackMenuStore((state) => state.openMenu);
   const playerHeight = useLucidSettingsStore((state) => state.playerHeight);
   const downloadActive = useDownloadStore((state) => state.activeCount);
@@ -352,17 +348,6 @@ export function PlayerBar({
             </button>
           )}
           <VolumeControl />
-          <IconButton
-            label={focusMode ? "Exit immersive mode (Esc)" : "Immersive lyrics (F)"}
-            size="sm"
-            onClick={toggleFocus}
-          >
-            {focusMode ? (
-              <Minimize2 className="h-3.5 w-3.5" strokeWidth={1.7} />
-            ) : (
-              <Maximize2 className="h-3.5 w-3.5" strokeWidth={1.7} />
-            )}
-          </IconButton>
         </div>
       </div>
     </div>

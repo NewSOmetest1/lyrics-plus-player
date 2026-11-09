@@ -96,7 +96,6 @@ export function Sidebar({
 
   const openPlaylist = usePlayerStore((state) => state.openPlaylist);
   const navigate = usePlayerStore((state) => state.navigate);
-  const toggleFocus = usePlayerStore((state) => state.toggleFocus);
   const scan = usePlayerStore((state) => state.scan);
   const addMusicFolder = usePlayerStore((state) => state.addMusicFolder);
 
@@ -209,7 +208,7 @@ export function Sidebar({
       return;
     }
     if (id === "now-playing") {
-      navigate({ type: "karaoke" });
+      navigate({ type: "now-playing" });
       return;
     }
     if (id === "search") {
@@ -217,7 +216,7 @@ export function Sidebar({
       window.dispatchEvent(new CustomEvent("lyricsplus:focus-search"));
       return;
     }
-    toggleFocus();
+    navigate({ type: "karaoke" });
   };
 
   const isActive = (id: (typeof navItems)[number]["id"]) => {
@@ -233,7 +232,7 @@ export function Sidebar({
     if (id === "stats") return view === "stats";
     if (id === "releases") return view === "releases";
     if (id === "now-playing") return view === "player" && !focusMode;
-    if (id === "karaoke") return focusMode;
+    if (id === "karaoke") return view === "karaoke" || focusMode;
     return false;
   };
 
