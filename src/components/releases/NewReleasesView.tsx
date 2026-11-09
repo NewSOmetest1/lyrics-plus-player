@@ -255,7 +255,7 @@ export function NewReleasesView() {
         title: "Download queue started",
         description: `${requests.length} track${
           requests.length === 1 ? "" : "s"
-        } added to the cascading FLAC downloader.`,
+        } added to the download queue.`,
       });
     } catch (error) {
       useToastStore.getState().push({

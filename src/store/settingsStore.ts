@@ -51,7 +51,7 @@ export interface ClientSettings {
   /** Priority used when loaded lyrics support more than one display mode. */
   syncModes: SyncModeSetting[];
 
-  /** External cascading downloader settings. */
+  /** External downloader settings. */
   downloaderPythonPath: string;
   downloaderScriptPath: string;
   downloaderMusicDir: string;

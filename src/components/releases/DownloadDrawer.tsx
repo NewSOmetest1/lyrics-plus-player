@@ -17,19 +17,19 @@ const EASE = [0.2, 0, 0, 1] as const;
 
 const STAGE_LABEL: Record<DownloadStage, string> = {
   queued: "Waiting in queue",
-  mornye: "Mornye Lossless",
-  soulseek: "Soulseek P2P",
-  deezer: "Deezer / Streamrip",
+  mornye: "Lossless source",
+  soulseek: "P2P source",
+  deezer: "Deezer",
   bandcamp: "Bandcamp",
   soundcloud: "SoundCloud",
   youtube: "YouTube",
-  cropping: "Cropping cover",
+  cropping: "Finishing artwork",
   done: "Finishing",
 };
 
 const SOURCE_TONE: Record<string, string> = {
-  Mornye: "border-amber-300/25 bg-amber-300/10 text-amber-200/85",
-  "Soulseek P2P": "border-fuchsia-300/25 bg-fuchsia-300/10 text-fuchsia-200/85",
+  Lossless: "border-amber-300/25 bg-amber-300/10 text-amber-200/85",
+  P2P: "border-fuchsia-300/25 bg-fuchsia-300/10 text-fuchsia-200/85",
   Deezer: "border-sky-300/25 bg-sky-300/10 text-sky-200/85",
   Bandcamp: "border-cyan-300/25 bg-cyan-300/10 text-cyan-200/85",
   SoundCloud: "border-orange-300/25 bg-orange-300/10 text-orange-200/85",
@@ -198,7 +198,7 @@ export function DownloadDrawer() {
               </h2>
               <p className="text-[9.5px] text-white/35">
                 {activeCount > 0
-                  ? `${activeCount} active · cascading FLAC`
+                  ? `${activeCount} active`
                   : "All downloads finished"}
               </p>
             </div>

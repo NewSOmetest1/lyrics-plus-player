@@ -3,7 +3,7 @@
 **English** · [Русский](README.ru.md)
 
 A local-first desktop music player for Linux with karaoke-grade lyrics, a
-Spotify release feed and a cascading lossless downloader. Built with
+Spotify release feed and an external lossless downloader. Built with
 **Electron 45 (Chromium)**, **React 18**, **TypeScript**, **Tailwind**,
 **framer-motion** and **Zustand**.
 
@@ -34,11 +34,10 @@ Screenshots use the built-in demo library from the browser preview.
 - **Spotify New Releases** — follows artists from the local Spotify desktop
   client (or the signed-in web profile), shows the last 28 days of releases,
   plays 30-second previews and marks unread releases with sidebar/card badges.
-- **Cascading lossless downloader** — queue missing tracks, watch live progress,
+- **External lossless downloader** — queue missing tracks, watch live progress,
   cancel tasks and get an automatic library rescan when a batch finishes. The
   engine is an external Python script, so you can plug in a custom downloader
-  for other sources. The reference script cascades through Mornye Lossless,
-  Soulseek, Deezer, Bandcamp, SoundCloud and YouTube.
+  for the sources you use.
 - **Listening stats** — all-time totals, top artists and tracks, plus a
   one-click "All-Time Top" playlist.
 - **Lucid UI** — frosted-glass surfaces, cover-colored ambient glow, optional
@@ -57,7 +56,7 @@ Screenshots use the built-in demo library from the browser preview.
 - Linux with PipeWire, PulseAudio or ALSA (Wayland or X11)
 - Node.js 18+ and npm
 - No Rust toolchain required
-- Optional for downloads: Python 3 and an external cascading downloader script
+- Optional for downloads: Python 3 and an external downloader script
   with its own dependencies
 - Optional for releases and Spotify lyrics: a Spotify account, signed in
   through Settings → Providers
@@ -163,10 +162,9 @@ all sources in one click. Removing a source never deletes files from disk.
 ### Downloader
 
 - **Python / venv path** — interpreter used to run the downloader script.
-- **Downloader script path** — a compatible cascading script. The default is
+- **Downloader script path** — a custom Python script. The default is
   empty, so set this before queueing downloads.
-- **Music directory** — where finished files are written. Defaults to
-  `~/StreamripDownloads`.
+- **Music directory** — where finished files are written.
 
 **Custom scripts.** Lyrics+ does not hard-code a download service. You can add
 any Python script as long as it accepts a text file of links as its first

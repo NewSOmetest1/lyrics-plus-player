@@ -140,9 +140,9 @@ function artistKeys(value: string): string[] {
 function stageToSource(stage: DownloadStage): string | null {
   switch (stage) {
     case "mornye":
-      return "Mornye";
+      return "Lossless";
     case "soulseek":
-      return "Soulseek P2P";
+      return "P2P";
     case "deezer":
       return "Deezer";
     case "bandcamp":
@@ -589,14 +589,14 @@ export class DownloadManager {
     }
 
     if (/✅\s*Soulseek FLAC принят/i.test(trimmed)) {
-      current.source = "Soulseek P2P";
+      current.source = "P2P";
       const pathMatch = /:\s*(.+)$/.exec(trimmed);
       if (pathMatch?.[1] && pathMatch[1].startsWith("/")) {
         current.filePath = pathMatch[1].trim();
         batch.stdoutPaths.set(current.id, current.filePath);
       }
     } else if (/✅\s*Mornye успешно загрузил Lossless/i.test(trimmed)) {
-      current.source = "Mornye";
+      current.source = "Lossless";
     } else if (/✅\s*Deezer:/i.test(trimmed)) {
       current.source = "Deezer";
     }

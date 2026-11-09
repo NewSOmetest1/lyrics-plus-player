@@ -1214,8 +1214,8 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 <>
                   <Section
                     icon={<Download className="h-3.5 w-3.5" />}
-                    title="Cascading FLAC downloader"
-                    description="Python engine, script location and destination folder"
+                    title="External downloader"
+                    description="Python script, interpreter and destination folder"
                   >
                     <div className="space-y-2.5">
                       <PathField
@@ -1229,18 +1229,18 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                       />
                       <PathField
                         label="Downloader Script Path"
-                        description="Path to spotify-rip-mornye-v3.py or a compatible cascade script."
+                        description="Path to a custom Python script that accepts a download queue file."
                         value={settings.downloaderScriptPath}
-                        placeholder="/path/to/spotify-rip.py"
+                        placeholder="/path/to/downloader.py"
                         onChange={(value) =>
                           update({ downloaderScriptPath: value })
                         }
                       />
                       <PathField
                         label="Music Directory"
-                        description="Where finished FLAC files are written. Defaults to ~/StreamripDownloads."
+                        description="Where downloaded audio files are written."
                         value={settings.downloaderMusicDir}
-                        placeholder="~/StreamripDownloads"
+                        placeholder="~/Music"
                         onChange={(value) =>
                           update({ downloaderMusicDir: value })
                         }
@@ -1259,12 +1259,11 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
 
                     <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
                       <p className="text-[10px] leading-relaxed text-white/30">
-                        Downloads cascade through Mornye Lossless, Soulseek P2P,
-                        Deezer (Streamrip), Bandcamp, SoundCloud and YouTube. The
-                        script runs with cover fixing enabled, so rectangular
-                        artwork is center-cropped to 1:1 before it reaches the
-                        library. Python dependencies and yt-dlp must be
-                        installed for the selected interpreter.
+                        The script receives a text file with the queued links,
+                        downloads audio into the music directory and reports
+                        progress on stdout. Finished files trigger a library
+                        rescan. Python dependencies must be installed for the
+                        selected interpreter.
                       </p>
                     </div>
                   </Section>
