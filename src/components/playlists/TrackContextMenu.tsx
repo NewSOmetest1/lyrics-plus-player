@@ -12,10 +12,11 @@ import {
 } from "lucide-react";
 
 import type { Playlist } from "@/types";
+import { isLikedPlaylist } from "@/types";
 import { cn } from "@/lib/cn";
 import { useTrackMenuStore } from "@/store/contextMenuStore";
 import { usePlaylistDialogStore } from "@/store/playlistDialogStore";
-import { usePlaylistStore } from "@/store/playlistStore";
+import { usePlaylistStore, useIsLiked } from "@/store/playlistStore";
 import { usePlayerStore } from "@/store/playerStore";
 import { useToastStore } from "@/store/toastStore";
 
@@ -71,7 +72,8 @@ export function TrackContextMenu() {
   const playlists = usePlaylistStore((state) => state.playlists);
   const addTrack = usePlaylistStore((state) => state.addTrack);
   const removeTrack = usePlaylistStore((state) => state.removeTrack);
-  const ensureLiked = usePlaylistStore((state) => state.ensureLiked);
+  const toggleLike = usePlaylistStore((state) => state.toggleLike);
+  const liked = useIsLiked(track?.path);
   const playTrack = usePlayerStore((state) => state.playTrack);
   const addToQueue = usePlayerStore((state) => state.addToQueue);
   const openCreate = usePlaylistDialogStore((state) => state.openCreate);
@@ -110,6 +112,10 @@ export function TrackContextMenu() {
 
   if (!track) return null;
 
+  const customPlaylists = playlists.filter(
+    (playlist) => !isLikedPlaylist(playlist),
+  );
+
   const toastAdded = (playlist: Playlist, changed: boolean) => {
     useToastStore.getState().push({
       kind: changed ? "success" : "info",
@@ -126,12 +132,9 @@ export function TrackContextMenu() {
     if (result) toastAdded(playlist, result.changed);
   };
 
-  const addToLiked = async () => {
+  const toggleLiked = async () => {
     close();
-    const liked = await ensureLiked();
-    if (!liked) return;
-    const result = await addTrack(liked.id, track.path);
-    if (result) toastAdded(liked, result.changed);
+    await toggleLike(track);
   };
 
   const removeFromPlaylist = async () => {
@@ -219,12 +222,12 @@ export function TrackContextMenu() {
                   role="menu"
                 >
                   <div className="max-h-[224px] overflow-y-auto">
-                    {playlists.length === 0 ? (
+                    {customPlaylists.length === 0 ? (
                       <p className="px-2.5 py-2 text-[10.5px] leading-relaxed text-white/25">
                         No playlists yet.
                       </p>
                     ) : (
-                      playlists.map((playlist) => (
+                      customPlaylists.map((playlist) => (
                         <button
                           key={playlist.id}
                           type="button"
@@ -262,9 +265,14 @@ export function TrackContextMenu() {
           <div className="my-1 h-px bg-white/[0.07]" />
 
           <MenuItem
-            icon={<Heart className="h-3.5 w-3.5" />}
-            label="Add to Liked Songs"
-            onClick={() => void addToLiked()}
+            icon={
+              <Heart
+                className={cn("h-3.5 w-3.5", liked && "fill-current")}
+              />
+            }
+            label={liked ? "Remove from Liked Songs" : "Add to Liked Songs"}
+            danger={liked}
+            onClick={() => void toggleLiked()}
           />
 
           {playlistId && (

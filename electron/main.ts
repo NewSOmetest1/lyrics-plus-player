@@ -43,6 +43,8 @@ import {
   resolveDownloaderSettings,
 } from "./downloader";
 import { ReleasesStore, resolvePreviewUrl } from "./releases";
+import { SpotifyLikedStore } from "./spotify-liked";
+import { SpotifyCatalogService } from "./spotify-catalog";
 import type {
   DownloadRequest,
   MusicFolder,
@@ -71,6 +73,8 @@ let playlists: PlaylistStore;
 let stats: StatsStore;
 let trackDelays: TrackDelayStore;
 let releases: ReleasesStore;
+let spotifyLiked: SpotifyLikedStore;
+let spotifyCatalog: SpotifyCatalogService;
 let downloads: DownloadManager;
 
 /**
@@ -423,6 +427,108 @@ function registerIpc(): void {
 
   ipcMain.handle("spotify:status", () => spotifyStatusPayload());
 
+  ipcMain.handle("spotify-liked:get", async () => {
+    const status = await spotifyStatusPayload();
+    return spotifyLiked.getSnapshot(status.authenticated);
+  });
+
+  ipcMain.handle("spotify-liked:sync", async () => {
+    const status = await spotifyStatusPayload();
+    return spotifyLiked.sync(
+      { BrowserWindow, session },
+      store,
+      status.authenticated,
+    );
+  });
+
+  ipcMain.handle("spotify-liked:set", async (_event, payload: unknown) => {
+    const record = (payload ?? {}) as {
+      trackId?: unknown;
+      liked?: unknown;
+    };
+    if (typeof record.trackId !== "string" || !record.trackId.trim()) {
+      throw new Error("A Spotify track id is required.");
+    }
+    const status = await spotifyStatusPayload();
+    return spotifyLiked.setLiked(
+      { BrowserWindow, session },
+      store,
+      record.trackId,
+      Boolean(record.liked),
+      status.authenticated,
+    );
+  });
+
+  ipcMain.handle("spotify:search", async (_event, query: unknown) => {
+    if (typeof query !== "string") {
+      throw new Error("A search query is required.");
+    }
+    return spotifyCatalog.search(query);
+  });
+
+  ipcMain.handle("spotify:artist", async (_event, payload: unknown) => {
+    const record = (payload ?? {}) as {
+      artistId?: unknown;
+      name?: unknown;
+    };
+    const artistId =
+      typeof record.artistId === "string" ? record.artistId.trim() : "";
+    const name = typeof record.name === "string" ? record.name.trim() : "";
+    if (!artistId && !name) {
+      throw new Error("An artist id or name is required.");
+    }
+    return spotifyCatalog.artist(artistId, name || undefined);
+  });
+
+  ipcMain.handle("spotify:albumTracks", async (_event, payload: unknown) => {
+    const record = (payload ?? {}) as {
+      albumId?: unknown;
+      artist?: unknown;
+      album?: unknown;
+      coverUrl?: unknown;
+    };
+    if (typeof record.albumId !== "string" || !record.albumId.trim()) {
+      throw new Error("An album id is required.");
+    }
+    return spotifyCatalog.albumTracks(record.albumId, {
+      artist: typeof record.artist === "string" ? record.artist : undefined,
+      album: typeof record.album === "string" ? record.album : undefined,
+      coverUrl:
+        typeof record.coverUrl === "string" ? record.coverUrl : undefined,
+    });
+  });
+
+  ipcMain.handle("spotify:album", async (_event, payload: unknown) => {
+    const record = (payload ?? {}) as {
+      albumId?: unknown;
+      artist?: unknown;
+      album?: unknown;
+      coverUrl?: unknown;
+      releaseDate?: unknown;
+      totalTracks?: unknown;
+    };
+    if (typeof record.albumId !== "string" || !record.albumId.trim()) {
+      throw new Error("An album id is required.");
+    }
+    return spotifyCatalog.album(record.albumId, {
+      artist: typeof record.artist === "string" ? record.artist : undefined,
+      album: typeof record.album === "string" ? record.album : undefined,
+      coverUrl:
+        typeof record.coverUrl === "string" ? record.coverUrl : undefined,
+      releaseDate:
+        typeof record.releaseDate === "string" ? record.releaseDate : undefined,
+      totalTracks:
+        typeof record.totalTracks === "number"
+          ? record.totalTracks
+          : undefined,
+    });
+  });
+
+  ipcMain.handle("spotify:resolveArtist", async (_event, name: unknown) => {
+    if (typeof name !== "string" || !name.trim()) return null;
+    return spotifyCatalog.resolveArtist(name);
+  });
+
   ipcMain.handle("releases:get", async () => {
     const status = await spotifyStatusPayload();
     return releases.getFeed(status.authenticated);
@@ -516,6 +622,8 @@ function registerIpc(): void {
   ipcMain.handle("clear_lyrics_cache", (_event, trackId: number) => store.clearLyrics(trackId));
 
   ipcMain.handle("playlists:getAll", () => playlists.getAll());
+
+  ipcMain.handle("playlists:ensureLiked", () => playlists.ensureLiked());
 
   ipcMain.handle("playlists:create", (_event, input: PlaylistCreateInput) =>
     playlists.create(input),
@@ -638,6 +746,11 @@ app.whenReady().then(async () => {
   mkdirSync(coversDir, { recursive: true });
   store = new LibraryStore(path.join(userData, "library.json"));
   playlists = new PlaylistStore(path.join(userData, "playlists.json"));
+  spotifyLiked = new SpotifyLikedStore(
+    path.join(userData, "spotify-liked.json"),
+    store,
+  );
+  spotifyCatalog = new SpotifyCatalogService({ BrowserWindow, session }, store);
   stats = new StatsStore(path.join(userData, "stats.json"));
   trackDelays = new TrackDelayStore(path.join(userData, "track-delays.json"));
   releases = new ReleasesStore(
@@ -652,8 +765,7 @@ app.whenReady().then(async () => {
       );
     },
   );
-  downloads = new DownloadManager({
-    store,
+  downloads = new DownloadManager({    store,
     coversDir,
     userDataDir: userData,
     getSettings: () => resolveDownloaderSettings(store),
@@ -692,5 +804,6 @@ app.on("before-quit", () => {
   stopResize();
   downloads?.dispose();
   releases?.dispose();
+  spotifyCatalog?.dispose();
   destroyDiscordRpc();
 });

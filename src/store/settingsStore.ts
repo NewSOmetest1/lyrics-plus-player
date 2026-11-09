@@ -51,6 +51,9 @@ export interface ClientSettings {
   /** Priority used when loaded lyrics support more than one display mode. */
   syncModes: SyncModeSetting[];
 
+  /** Which collection powers the Liked Songs playlist. */
+  likedSongsSource: "local" | "spotify";
+
   /** External downloader settings. */
   downloaderPythonPath: string;
   downloaderScriptPath: string;
@@ -89,6 +92,7 @@ export const DEFAULT_SETTINGS: ClientSettings = {
     { id: "synced", enabled: true },
     { id: "unsynced", enabled: true },
   ],
+  likedSongsSource: "local",
   downloaderPythonPath: "python3",
   downloaderScriptPath: DEFAULT_DOWNLOADER_SCRIPT_PATH,
   downloaderMusicDir: DEFAULT_DOWNLOADER_MUSIC_DIR,
@@ -122,6 +126,7 @@ const KEYS: Record<Exclude<keyof ClientSettings, "providers" | "syncModes">, str
   activeTextColor: "lyrics_color_active",
   inactiveTextColor: "lyrics_color_inactive",
   accentColor: "ui_accent",
+  likedSongsSource: "liked_songs_source",
   downloaderPythonPath: "downloader_python_path",
   downloaderScriptPath: "downloader_script_path",
   downloaderMusicDir: "downloader_music_dir",
@@ -316,6 +321,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         raw.downloaderScriptPath || DEFAULT_SETTINGS.downloaderScriptPath,
       downloaderMusicDir:
         raw.downloaderMusicDir || DEFAULT_SETTINGS.downloaderMusicDir,
+      likedSongsSource:
+        raw.likedSongsSource === "spotify" ? "spotify" : "local",
       providers,
       syncModes,
       loaded: true,

@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo } from "react";
 import { Heart, Play } from "lucide-react";
 import type { Track } from "@/types";
 import { cn } from "@/lib/cn";
@@ -7,6 +7,7 @@ import { CoverArt } from "@/components/ui/CoverArt";
 import { EqualizerBars } from "@/components/ui/EqualizerBars";
 import { ArtistLinks } from "@/components/artists/ArtistLinks";
 import { useTrackMenuStore } from "@/store/contextMenuStore";
+import { useIsLiked, usePlaylistStore } from "@/store/playlistStore";
 
 interface TrackRowProps {
   track: Track;
@@ -39,7 +40,8 @@ export const TrackRow = memo(function TrackRow({
   playing,
   onPlay,
 }: TrackRowProps) {
-  const [liked, setLiked] = useState(false);
+  const liked = useIsLiked(track.path);
+  const toggleLike = usePlaylistStore((state) => state.toggleLike);
 
   return (
     <div
@@ -128,12 +130,16 @@ export const TrackRow = memo(function TrackRow({
 
       <button
         type="button"
-        onClick={() => setLiked((value) => !value)}
-        aria-label={liked ? "Remove from favourites" : "Add to favourites"}
+        onClick={(event) => {
+          event.stopPropagation();
+          void toggleLike(track);
+        }}
+        onDoubleClick={(event) => event.stopPropagation()}
+        aria-label={liked ? "Remove from Liked Songs" : "Add to Liked Songs"}
         className={cn(
           "flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition",
           liked
-            ? "text-rose-400 opacity-100"
+            ? "text-accent opacity-100"
             : "text-white/25 opacity-0 hover:text-white/70 group-hover:opacity-100",
         )}
       >

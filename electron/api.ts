@@ -34,6 +34,15 @@ export type {
   ReleaseRecord,
   ReleaseTrack,
   ReleaseType,
+  SpotifyLikedSnapshot,
+  SpotifyLikedSource,
+  SpotifyLikedTrack,
+  SpotifyArtistSummary,
+  SpotifyAlbumSummary,
+  SpotifyCatalogTrack,
+  SpotifySearchCatalog,
+  SpotifyArtistCatalog,
+  SpotifyAlbumCatalog,
 } from "./types";
 
 export interface SpotifyAuthStatus {

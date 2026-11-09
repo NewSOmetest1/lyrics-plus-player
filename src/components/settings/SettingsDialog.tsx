@@ -14,6 +14,7 @@ import {
   FolderOpen,
   Gamepad2,
   GripVertical,
+  Heart,
   KeyRound,
   Loader2,
   Minus,
@@ -44,6 +45,7 @@ import {
 } from "@/store/trackDelayStore";
 import { useToastStore } from "@/store/toastStore";
 import { useLucidSettingsStore } from "@/store/lucidSettingsStore";
+import { useSpotifyLikedStore } from "@/store/spotifyLikedStore";
 import { SpotifyAuthCard } from "@/components/settings/SpotifyAuthCard";
 import { cn } from "@/lib/cn";
 
@@ -473,6 +475,7 @@ function PathField({
 
 export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const settings = useSettingsStore();
+  const spotifyLiked = useSpotifyLikedStore();
   const update = settings.update;
   const moveProvider = settings.moveProvider;
   const moveSyncMode = settings.moveSyncMode;
@@ -1356,6 +1359,90 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                   </div>
 
                   <SpotifyAuthCard open={open} />
+
+                  <Section
+                    icon={<Heart className="h-3.5 w-3.5" />}
+                    title="Liked Songs"
+                    description="Choose the source for the Liked Songs playlist"
+                  >
+                    <div className="grid grid-cols-2 gap-2">
+                      {(
+                        [
+                          {
+                            id: "local",
+                            label: "Local",
+                            description: "Only tracks liked inside this player",
+                          },
+                          {
+                            id: "spotify",
+                            label: "Spotify Synced",
+                            description: "Mirror my Spotify Liked Songs",
+                          },
+                        ] as const
+                      ).map((option) => {
+                        const active = settings.likedSongsSource === option.id;
+                        return (
+                          <button
+                            key={option.id}
+                            type="button"
+                            onClick={() =>
+                              update({ likedSongsSource: option.id })
+                            }
+                            className={cn(
+                              "rounded-xl border px-3 py-2.5 text-left transition",
+                              active
+                                ? "border-accent/40 bg-accent/[0.08]"
+                                : "border-white/[0.07] bg-white/[0.03] hover:bg-white/[0.06]",
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "flex items-center gap-1.5 text-[11.5px] font-bold",
+                                active ? "text-accent" : "text-white/70",
+                              )}
+                            >
+                              {active && <Check className="h-3 w-3" />}
+                              {option.label}
+                            </span>
+                            <span className="mt-1 block text-[10px] text-white/30">
+                              {option.description}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {settings.likedSongsSource === "spotify" && (
+                      <div className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-semibold text-white/65">
+                            {spotifyLiked.syncing
+                              ? "Syncing with Spotify…"
+                              : spotifyLiked.snapshot
+                                ? `${spotifyLiked.snapshot.total} tracks · ${spotifyLiked.snapshot.downloaded} on PC · ${spotifyLiked.snapshot.missing} missing`
+                                : "Not synced yet"}
+                          </p>
+                          <p className="mt-1 text-[10px] leading-relaxed text-white/25">
+                            Downloaded matches play from your library. Missing
+                            tracks can be downloaded from the Liked Songs page.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void spotifyLiked.sync()}
+                          disabled={spotifyLiked.syncing || !isDesktop}
+                          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.05] px-2.5 py-1.5 text-[10px] font-semibold text-white/60 transition hover:bg-white/[0.09] hover:text-white disabled:pointer-events-none disabled:opacity-40"
+                        >
+                          {spotifyLiked.syncing ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <RefreshCw className="h-3 w-3" />
+                          )}
+                          Sync with Spotify
+                        </button>
+                      </div>
+                    )}
+                  </Section>
 
                   <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
                     <div className="flex items-center justify-between gap-3">

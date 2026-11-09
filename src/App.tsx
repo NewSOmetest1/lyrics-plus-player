@@ -9,6 +9,7 @@ import { usePlayerStore } from "@/store/playerStore";
 import { usePlaylistStore } from "@/store/playlistStore";
 import { useReleasesStore } from "@/store/releasesStore";
 import { useDownloadStore } from "@/store/downloadStore";
+import { useSpotifyLikedStore } from "@/store/spotifyLikedStore";
 import { useToastStore } from "@/store/toastStore";
 import { backend, subscribePlayback } from "@/lib/api";
 import { useNavigation } from "@/hooks/useNavigation";
@@ -25,7 +26,9 @@ import { AmbientBackground } from "@/components/background/AmbientBackground";
 import { TitleBar, WindowResizeHandles } from "@/components/layout/TitleBar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { LibraryView } from "@/components/library/LibraryView";
+import { SearchView } from "@/components/search/SearchView";
 import { ArtistDetailView } from "@/components/artists/ArtistDetailView";
+import { AlbumDetailView } from "@/components/albums/AlbumDetailView";
 import { PlaylistView } from "@/components/playlists/PlaylistView";
 import { StatsView } from "@/components/stats/StatsView";
 import { NewReleasesView } from "@/components/releases/NewReleasesView";
@@ -270,6 +273,7 @@ export default function App() {
   const view = usePlayerStore((state) => state.view);
   const selectedPlaylistId = usePlayerStore((state) => state.selectedPlaylistId);
   const selectedArtistName = usePlayerStore((state) => state.selectedArtistName);
+  const selectedAlbumId = usePlayerStore((state) => state.selectedAlbumId);
   const focusMode = usePlayerStore((state) => state.focusMode);
   const [sidebarWidth, setSidebarWidth] = useState(() =>
     readStoredWidth(
@@ -392,6 +396,7 @@ export default function App() {
     void useSettingsStore.getState().init();
     void useTrackDelayStore.getState().init();
     void usePlaylistStore.getState().init();
+    void useSpotifyLikedStore.getState().init();
     void useReleasesStore.getState().init();
     void useDownloadStore.getState().init();
     useLucidSettingsStore.getState().init();
@@ -574,7 +579,7 @@ export default function App() {
           break;
         case "/":
           event.preventDefault();
-          store.setView("library");
+          store.navigate({ type: "search", query: store.search });
           window.dispatchEvent(new CustomEvent("lyricsplus:focus-search"));
           break;
         case "[":
@@ -668,7 +673,9 @@ export default function App() {
                   ? `playlist-${selectedPlaylistId ?? "none"}`
                   : view === "artist"
                     ? `artist-${selectedArtistName ?? "none"}`
-                    : view
+                    : view === "album-detail"
+                      ? `album-${selectedAlbumId ?? "none"}`
+                      : view
               }
               initial={{ opacity: 0, scale: 0.985, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -678,12 +685,16 @@ export default function App() {
             >
               {view === "artist" ? (
                 <ArtistDetailView />
+              ) : view === "album-detail" ? (
+                <AlbumDetailView />
               ) : view === "playlist" ? (
                 <PlaylistView />
               ) : view === "stats" ? (
                 <StatsView />
               ) : view === "releases" ? (
                 <NewReleasesView />
+              ) : view === "search" ? (
+                <SearchView />
               ) : view === "library" ? (
                 <LibraryView />
               ) : (

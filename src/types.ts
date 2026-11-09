@@ -18,6 +18,15 @@ export type {
   ReleaseRecord,
   ReleaseTrack,
   ReleaseType,
+  SpotifyLikedSnapshot,
+  SpotifyLikedSource,
+  SpotifyLikedTrack,
+  SpotifyArtistSummary,
+  SpotifyAlbumSummary,
+  SpotifyCatalogTrack,
+  SpotifySearchCatalog,
+  SpotifyArtistCatalog,
+  SpotifyAlbumCatalog,
 } from "../electron/api";
 
 /** Accept persisted/legacy mode ids regardless of case or surrounding spaces. */
@@ -34,6 +43,8 @@ export type AppView =
   | "karaoke"
   | "playlist"
   | "artist"
+  | "album-detail"
+  | "search"
   | "stats"
   | "releases";
 export type LibrarySection = "tracks" | "albums" | "artists" | "playlists";
@@ -41,7 +52,20 @@ export type LibrarySection = "tracks" | "albums" | "artists" | "playlists";
 export type NavigationEntry =
   | { type: "library"; section?: LibrarySection; query?: string }
   | { type: "artists" }
-  | { type: "artist-detail"; artistId: string }
+  | {
+      type: "artist-detail";
+      artistId: string;
+      spotifyArtistId?: string;
+    }
+  | {
+      type: "album-detail";
+      albumId: string;
+      artistName?: string;
+      albumTitle?: string;
+      coverUrl?: string | null;
+      releaseDate?: string;
+      totalTracks?: number;
+    }
   | { type: "playlist"; playlistId: string }
   | { type: "now-playing" }
   | { type: "karaoke" }
@@ -122,6 +146,19 @@ export interface Playlist {
   trackPaths: string[];
   createdAt: number;
   updatedAt: number;
+}
+
+/** Reserved system playlist used by every heart button in the player. */
+export const LIKED_PLAYLIST_ID = "liked-songs";
+export const LIKED_PLAYLIST_NAME = "Liked Songs";
+export const LIKED_PLAYLIST_DESCRIPTION = "Your favorite tracks";
+export const LIKED_PLAYLIST_GRADIENT =
+  "linear-gradient(135deg, #450af5, #8e8ee8)";
+
+export function isLikedPlaylist(
+  playlist: Pick<Playlist, "id"> | null | undefined,
+): boolean {
+  return playlist?.id === LIKED_PLAYLIST_ID;
 }
 
 export interface LyricWord {

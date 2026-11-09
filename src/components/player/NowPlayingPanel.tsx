@@ -1,19 +1,13 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { motion } from "framer-motion";
-import {
-  Heart,
-  ListMusic,
-  Pause,
-  Play,
-  Sparkles,
-} from "lucide-react";
+import { Heart, Pause, Play, Sparkles } from "lucide-react";
 import { usePlayerStore } from "@/store/playerStore";
+import { useIsLiked, usePlaylistStore } from "@/store/playlistStore";
 import { useTrackMenuStore } from "@/store/contextMenuStore";
 import { cn } from "@/lib/cn";
 import { formatQuality, formatTime } from "@/lib/format";
 import { CoverArt } from "@/components/ui/CoverArt";
 import { ArtistLinks } from "@/components/artists/ArtistLinks";
-import { IconButton } from "@/components/ui/IconButton";
 
 export function NowPlayingPanel() {
   const track = usePlayerStore((state) => state.currentTrack);
@@ -22,9 +16,9 @@ export function NowPlayingPanel() {
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const playTrack = usePlayerStore((state) => state.playTrack);
   const togglePlay = usePlayerStore((state) => state.togglePlay);
-  const toggleQueue = usePlayerStore((state) => state.toggleQueue);
   const openMenu = useTrackMenuStore((state) => state.openMenu);
-  const [liked, setLiked] = useState(false);
+  const toggleLike = usePlaylistStore((state) => state.toggleLike);
+  const liked = useIsLiked(track?.path);
 
   const queue = useMemo(() => {
     if (tracks.length <= 1) return [];
@@ -40,13 +34,10 @@ export function NowPlayingPanel() {
   return (
     <aside className="now-playing-content flex h-full min-h-0 w-full min-w-0 shrink-0 flex-col">
       <div className="now-playing-card lucid-glass-panel glass flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl p-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center">
           <span className="text-[9.5px] font-bold uppercase tracking-[0.2em] text-white/30">
             Now playing
           </span>
-          <IconButton label="Open queue" size="sm" onClick={toggleQueue}>
-            <ListMusic className="h-3.5 w-3.5" />
-          </IconButton>
         </div>
 
         <div className="relative mx-auto mt-3 w-full min-w-0">
@@ -125,24 +116,19 @@ export function NowPlayingPanel() {
         <div className="mt-4 flex min-w-0 flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => setLiked((value) => !value)}
+            onClick={() => {
+              if (track) void toggleLike(track);
+            }}
+            disabled={!track}
             className={cn(
-              "flex h-8 min-w-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-[10.5px] font-semibold transition",
+              "flex h-8 min-w-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-[10.5px] font-semibold transition disabled:pointer-events-none disabled:opacity-40",
               liked
-                ? "border-rose-400/30 bg-rose-400/10 text-rose-300"
+                ? "border-accent/30 bg-accent-soft text-accent"
                 : "border-white/[0.08] bg-white/[0.04] text-white/45 hover:bg-white/[0.08] hover:text-white/75",
             )}
           >
             <Heart className={cn("h-3.5 w-3.5 shrink-0", liked && "fill-current")} />
             {liked ? "Liked" : "Like"}
-          </button>
-          <button
-            type="button"
-            onClick={toggleQueue}
-            className="flex h-8 min-w-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-white/[0.08] bg-white/[0.04] px-3 text-[10.5px] font-semibold text-white/45 transition hover:bg-white/[0.08] hover:text-white/75"
-          >
-            <ListMusic className="h-3.5 w-3.5 shrink-0" />
-            Queue
           </button>
         </div>
 

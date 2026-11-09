@@ -157,7 +157,7 @@ export function cleanTrackTitle(title: string, artist = ""): CleanTrack {
   };
 }
 
-function normalizeForMatch(value: string): string {
+export function normalizeForMatch(value: string): string {
   return cleanTrackTitle(value)
     .title.toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")

@@ -117,6 +117,95 @@ export type ReleaseType = "single" | "album" | "ep";
 
 export type ArtistSource = "library" | "manual" | "spotify";
 
+export type SpotifyLikedSource = "web" | "partner" | "desktop" | "cache";
+
+/** One track from the user's Spotify liked-songs collection. */
+export interface SpotifyLikedTrack {
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  durationMs: number;
+  coverUrl: string | null;
+  spotifyUrl: string;
+  addedAt: number;
+  /** True when the track was matched to a file in the local library. */
+  isDownloaded: boolean;
+  localPath: string | null;
+}
+
+export interface SpotifyLikedSnapshot {
+  version: 1;
+  items: SpotifyLikedTrack[];
+  total: number;
+  downloaded: number;
+  missing: number;
+  fetchedAt: number | null;
+  source: SpotifyLikedSource | null;
+  warnings: string[];
+  authenticated: boolean;
+}
+
+/** Artist metadata from Spotify's catalog, used by search and artist pages. */
+export interface SpotifyArtistSummary {
+  id: string;
+  name: string;
+  imageUrl: string | null;
+  genres: string[];
+  followers: number;
+  monthlyListeners: number;
+  popularity: number;
+  spotifyUrl: string;
+}
+
+export interface SpotifyAlbumSummary {
+  id: string;
+  title: string;
+  artist: string;
+  artists: string[];
+  releaseDate: string;
+  releaseDatePrecision: "year" | "month" | "day";
+  coverUrl: string | null;
+  spotifyUrl: string;
+  totalTracks: number;
+  type: string;
+}
+
+export interface SpotifyCatalogTrack {
+  id: string;
+  title: string;
+  artist: string;
+  artists: string[];
+  album: string;
+  albumId: string | null;
+  coverUrl: string | null;
+  durationMs: number;
+  trackNumber: number;
+  spotifyUrl: string;
+}
+
+export interface SpotifySearchCatalog {
+  query: string;
+  artists: SpotifyArtistSummary[];
+  albums: SpotifyAlbumSummary[];
+  tracks: SpotifyCatalogTrack[];
+  warnings: string[];
+}
+
+export interface SpotifyArtistCatalog {
+  artist: SpotifyArtistSummary;
+  topTracks: SpotifyCatalogTrack[];
+  albums: SpotifyAlbumSummary[];
+  warnings: string[];
+}
+
+/** Full album page payload: metadata plus its Spotify tracklist. */
+export interface SpotifyAlbumCatalog {
+  album: SpotifyAlbumSummary;
+  tracks: SpotifyCatalogTrack[];
+  warnings: string[];
+}
+
 export interface FollowedArtist {
   /** Spotify artist id. */
   id: string;

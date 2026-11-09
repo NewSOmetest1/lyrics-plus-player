@@ -369,8 +369,7 @@ export class SpotifyWebClient {
     operationName: string,
     variables: Record<string, unknown>,
     sha256Hash: string,
-  ): Promise<T> {
-    let lastError: Error | null = null;
+  ): Promise<T> {    let lastError: Error | null = null;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         // Header capture can legitimately take up to WARMUP_TIMEOUT_MS. Keep
@@ -432,6 +431,15 @@ export class SpotifyWebClient {
       }
     }
     throw lastError ?? new Error("Spotify web request failed.");
+  }
+
+  /** Replay a first-party persisted GraphQL query with the captured session. */
+  async graphql<T>(
+    operationName: string,
+    variables: Record<string, unknown>,
+    sha256Hash: string,
+  ): Promise<T> {
+    return this.query<T>(operationName, variables, sha256Hash);
   }
 
   private username: string | null = null;
@@ -677,6 +685,18 @@ export class SpotifyWebClient {
       following ? "addToLibrary" : "removeFromLibrary",
       {
         libraryItemUris: [`spotify:artist:${artistId}`],
+        interactionId: null,
+      },
+      HASHES.library,
+    );
+  }
+
+  /** Add or remove a track from the signed-in account's Liked Songs. */
+  async setTrackSaved(trackId: string, saved: boolean): Promise<void> {
+    await this.query<Record<string, unknown>>(
+      saved ? "addToLibrary" : "removeFromLibrary",
+      {
+        libraryItemUris: [`spotify:track:${trackId}`],
         interactionId: null,
       },
       HASHES.library,

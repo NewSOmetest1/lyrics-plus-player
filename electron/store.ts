@@ -106,6 +106,7 @@ function dedupeTracks(tracks: TrackRecord[]): TrackRecord[] {
  */
 export class LibraryStore {
   private data: LibraryData;
+  private revision = 0;
   private migratedFolders = false;
 
   constructor(private readonly file: string) {
@@ -144,6 +145,7 @@ export class LibraryStore {
   }
 
   save(): void {
+    this.revision += 1;
     // Enforce the path invariant on every write, not only during a scan.
     this.data.tracks = dedupeTracks(this.data.tracks);
     this.data.musicFolders = normalizeMusicFolders(
@@ -156,7 +158,12 @@ export class LibraryStore {
 
   /** Replace the library with a path-deduplicated snapshot. */
   replaceTracks(tracks: TrackRecord[]): void {
+    this.revision += 1;
     this.data.tracks = dedupeTracks(tracks);
+  }
+
+  getRevision(): number {
+    return this.revision;
   }
 
   /** Drop entries whose files no longer exist on disk. */

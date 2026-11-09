@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { ListMusic, Play, Plus } from "lucide-react";
 
 import type { Playlist, Track } from "@/types";
+import { isLikedPlaylist } from "@/types";
 import { formatCount } from "@/lib/format";
 import { usePlayerStore } from "@/store/playerStore";
 import { usePlaylistStore } from "@/store/playlistStore";
@@ -49,6 +50,7 @@ function PlaylistCard({
       <div className="relative">
         <PlaylistCover
           tracks={tracks.slice(0, 4)}
+          liked={isLikedPlaylist(playlist)}
           className="aspect-square w-full rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
           iconClassName="h-8 w-8"
         />
@@ -71,8 +73,18 @@ function PlaylistCard({
         {playlist.name}
       </p>
       <p className="mt-0.5 truncate text-[12px] text-white/40">
-        Playlist <span className="text-white/20">•</span>{" "}
-        {formatCount(playlist.trackPaths.length, "track")}
+        {isLikedPlaylist(playlist) ? (
+          <>
+            Playlist <span className="text-white/20">•</span>{" "}
+            {playlist.trackPaths.length}{" "}
+            {playlist.trackPaths.length === 1 ? "song" : "songs"}
+          </>
+        ) : (
+          <>
+            Playlist <span className="text-white/20">•</span>{" "}
+            {formatCount(playlist.trackPaths.length, "track")}
+          </>
+        )}
       </p>
     </motion.div>
   );

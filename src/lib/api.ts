@@ -13,9 +13,20 @@ import type {
   ReleaseFeed,
   ScanProgress,
   ScanSummary,
+  SpotifyArtistCatalog,
+  SpotifyArtistSummary,
+  SpotifyAlbumCatalog,
+  SpotifyCatalogTrack,
+  SpotifyLikedSnapshot,
+  SpotifySearchCatalog,
   StatsData,
   Track,
   TrackStatsRecord,
+} from "@/types";
+import {
+  LIKED_PLAYLIST_DESCRIPTION,
+  LIKED_PLAYLIST_ID,
+  LIKED_PLAYLIST_NAME,
 } from "@/types";
 import type { SpotifyAuthResult, SpotifyAuthStatus } from "../../electron/api";
 import { DEMO_TRACKS, demoLyricsFor } from "@/data/demo";
@@ -39,6 +50,18 @@ const EMPTY_DOWNLOAD_SNAPSHOT: DownloadSnapshot = {
   tasks: [],
   activeCount: 0,
   completedCount: 0,
+};
+
+const EMPTY_SPOTIFY_LIKED: SpotifyLikedSnapshot = {
+  version: 1,
+  items: [],
+  total: 0,
+  downloaded: 0,
+  missing: 0,
+  fetchedAt: null,
+  source: null,
+  warnings: [],
+  authenticated: false,
 };
 
 function emptyReleaseFeed(): ReleaseFeed {
@@ -108,6 +131,46 @@ function writeDemoPlaylists(playlists: Playlist[]): void {
   } catch {
     // Preview storage is best-effort.
   }
+}
+
+function ensureDemoLikedPlaylist(): Playlist {
+  const playlists = readDemoPlaylists();
+  const existing = playlists.find(
+    (playlist) => playlist.id === LIKED_PLAYLIST_ID,
+  );
+  if (existing) return existing;
+
+  const named = playlists.find(
+    (playlist) => playlist.name.trim().toLowerCase() === "liked songs",
+  );
+  if (named) {
+    named.id = LIKED_PLAYLIST_ID;
+    named.name = LIKED_PLAYLIST_NAME;
+    if (!named.description?.trim()) {
+      named.description = LIKED_PLAYLIST_DESCRIPTION;
+    }
+    named.updatedAt = Date.now();
+    writeDemoPlaylists(playlists);
+    return named;
+  }
+
+  const now = Date.now();
+  const liked: Playlist = {
+    id: LIKED_PLAYLIST_ID,
+    name: LIKED_PLAYLIST_NAME,
+    description: LIKED_PLAYLIST_DESCRIPTION,
+    trackPaths: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  writeDemoPlaylists([liked, ...playlists]);
+  return liked;
+}
+
+function readDemoPlaylistsWithLiked(): Playlist[] {
+  const liked = ensureDemoLikedPlaylist();
+  const playlists = readDemoPlaylists();
+  return [liked, ...playlists.filter((playlist) => playlist.id !== liked.id)];
 }
 
 function uniquePaths(paths: string[]): string[] {
@@ -865,8 +928,13 @@ export const backend = {
   },
 
   async getPlaylists(): Promise<Playlist[]> {
-    if (!isElectron) return readDemoPlaylists();
+    if (!isElectron) return readDemoPlaylistsWithLiked();
     return electronApi().invoke<Playlist[]>("playlists:getAll");
+  },
+
+  async ensureLikedPlaylist(): Promise<Playlist> {
+    if (!isElectron) return ensureDemoLikedPlaylist();
+    return electronApi().invoke<Playlist>("playlists:ensureLiked");
   },
 
   async createPlaylist(input: {
@@ -1137,6 +1205,99 @@ export const backend = {
   async getDownloads(): Promise<DownloadSnapshot> {
     if (!isElectron) return EMPTY_DOWNLOAD_SNAPSHOT;
     return electronApi().invoke<DownloadSnapshot>("downloads:get");
+  },
+
+  async getSpotifyLiked(): Promise<SpotifyLikedSnapshot> {
+    if (!isElectron) return EMPTY_SPOTIFY_LIKED;
+    return electronApi().invoke<SpotifyLikedSnapshot>("spotify-liked:get");
+  },
+
+  async syncSpotifyLiked(): Promise<SpotifyLikedSnapshot> {
+    if (!isElectron) {
+      throw new Error("Spotify liked songs need the Electron desktop app.");
+    }
+    return electronApi().invoke<SpotifyLikedSnapshot>("spotify-liked:sync");
+  },
+
+  async setSpotifyLiked(
+    trackId: string,
+    liked: boolean,
+  ): Promise<SpotifyLikedSnapshot> {
+    if (!isElectron) {
+      throw new Error("Spotify liked songs need the Electron desktop app.");
+    }
+    return electronApi().invoke<SpotifyLikedSnapshot>("spotify-liked:set", {
+      trackId,
+      liked,
+    });
+  },
+
+  async searchSpotify(query: string): Promise<SpotifySearchCatalog> {
+    if (!isElectron) {
+      return {
+        query,
+        artists: [],
+        albums: [],
+        tracks: [],
+        warnings: ["Spotify catalog search needs the desktop app."],
+      };
+    }
+    return electronApi().invoke<SpotifySearchCatalog>("spotify:search", query);
+  },
+
+  async getSpotifyArtist(
+    artistId: string,
+    name?: string,
+  ): Promise<SpotifyArtistCatalog> {
+    if (!isElectron) {
+      throw new Error("Spotify artist pages need the Electron desktop app.");
+    }
+    return electronApi().invoke<SpotifyArtistCatalog>("spotify:artist", {
+      artistId,
+      name,
+    });
+  },
+
+  async getSpotifyAlbumTracks(
+    albumId: string,
+    fallback?: { artist?: string; album?: string; coverUrl?: string | null },
+  ): Promise<SpotifyCatalogTrack[]> {
+    if (!isElectron) {
+      throw new Error("Spotify albums need the Electron desktop app.");
+    }
+    return electronApi().invoke<SpotifyCatalogTrack[]>(
+      "spotify:albumTracks",
+      { albumId, ...fallback },
+    );
+  },
+
+  async getSpotifyAlbum(
+    albumId: string,
+    fallback?: {
+      artist?: string;
+      album?: string;
+      coverUrl?: string | null;
+      releaseDate?: string;
+      totalTracks?: number;
+    },
+  ): Promise<SpotifyAlbumCatalog> {
+    if (!isElectron) {
+      throw new Error("Spotify albums need the Electron desktop app.");
+    }
+    return electronApi().invoke<SpotifyAlbumCatalog>("spotify:album", {
+      albumId,
+      ...fallback,
+    });
+  },
+
+  async resolveSpotifyArtist(
+    name: string,
+  ): Promise<SpotifyArtistSummary | null> {
+    if (!isElectron) return null;
+    return electronApi().invoke<SpotifyArtistSummary | null>(
+      "spotify:resolveArtist",
+      name,
+    );
   },
 
   async startDownloads(

@@ -12,12 +12,14 @@ import type {
   PlaybackSnapshot,
   RepeatMode,
   ScanProgress,
+  SpotifyAlbumSummary,
   Track,
 } from "@/types";
 import { normalizeLyricsMode } from "@/types";
 import { backend } from "@/lib/api";
 import { ensureWordTimings, parseLrc, parsePlainLyrics } from "@/lib/lrc";
 import { useSettingsStore } from "@/store/settingsStore";
+import { useSpotifyLikedStore } from "@/store/spotifyLikedStore";
 import { useToastStore } from "@/store/toastStore";
 
 let lyricsRequest = 0;
@@ -199,6 +201,13 @@ interface PlayerState {
   librarySection: LibrarySection;
   selectedPlaylistId: string | null;
   selectedArtistName: string | null;
+  selectedArtistSpotifyId: string | null;
+  selectedAlbumId: string | null;
+  selectedAlbumArtist: string | null;
+  selectedAlbumTitle: string | null;
+  selectedAlbumCoverUrl: string | null;
+  selectedAlbumReleaseDate: string | null;
+  selectedAlbumTotalTracks: number;
   history: NavigationEntry[];
   currentIndex: number;
   lyricsMode: LyricsMode;
@@ -242,7 +251,8 @@ interface PlayerState {
   setView: (view: AppView) => void;
   setLibrarySection: (section: LibrarySection) => void;
   openPlaylist: (playlistId: string) => void;
-  openArtist: (artistName: string) => void;
+  openArtist: (artistName: string, spotifyArtistId?: string) => void;
+  openAlbum: (album: SpotifyAlbumSummary) => void;
   navigate: (entry: NavigationEntry) => void;
   goBack: () => void;
   goForward: () => void;
@@ -277,6 +287,26 @@ function normalizeNavigationEntry(entry: NavigationEntry): NavigationEntry {
       ...(entry.query ? { query: entry.query } : {}),
     };
   }
+  if (entry.type === "artist-detail") {
+    return {
+      type: "artist-detail",
+      artistId: entry.artistId,
+      ...(entry.spotifyArtistId
+        ? { spotifyArtistId: entry.spotifyArtistId }
+        : {}),
+    };
+  }
+  if (entry.type === "album-detail") {
+    return {
+      type: "album-detail",
+      albumId: entry.albumId,
+      ...(entry.artistName ? { artistName: entry.artistName } : {}),
+      ...(entry.albumTitle ? { albumTitle: entry.albumTitle } : {}),
+      ...(entry.coverUrl ? { coverUrl: entry.coverUrl } : {}),
+      ...(entry.releaseDate ? { releaseDate: entry.releaseDate } : {}),
+      ...(entry.totalTracks ? { totalTracks: entry.totalTracks } : {}),
+    };
+  }
   return entry;
 }
 
@@ -292,6 +322,13 @@ function navigationState(entry: NavigationEntry): Partial<PlayerState> {
     focusMode: false,
     selectedPlaylistId: null,
     selectedArtistName: null,
+    selectedArtistSpotifyId: null,
+    selectedAlbumId: null,
+    selectedAlbumArtist: null,
+    selectedAlbumTitle: null,
+    selectedAlbumCoverUrl: null,
+    selectedAlbumReleaseDate: null,
+    selectedAlbumTotalTracks: 0,
     search: "",
   };
 
@@ -315,6 +352,19 @@ function navigationState(entry: NavigationEntry): Partial<PlayerState> {
         view: "artist",
         librarySection: "artists",
         selectedArtistName: entry.artistId,
+        selectedArtistSpotifyId: entry.spotifyArtistId ?? null,
+      };
+    case "album-detail":
+      return {
+        ...reset,
+        view: "album-detail",
+        librarySection: "artists",
+        selectedAlbumId: entry.albumId,
+        selectedAlbumArtist: entry.artistName ?? null,
+        selectedAlbumTitle: entry.albumTitle ?? null,
+        selectedAlbumCoverUrl: entry.coverUrl ?? null,
+        selectedAlbumReleaseDate: entry.releaseDate ?? null,
+        selectedAlbumTotalTracks: entry.totalTracks ?? 0,
       };
     case "playlist":
       return {
@@ -345,7 +395,7 @@ function navigationState(entry: NavigationEntry): Partial<PlayerState> {
     case "search":
       return {
         ...reset,
-        view: "library",
+        view: "search",
         librarySection: "tracks",
         search: entry.query ?? "",
       };
@@ -377,6 +427,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   librarySection: "tracks",
   selectedPlaylistId: null,
   selectedArtistName: null,
+  selectedArtistSpotifyId: null,
+  selectedAlbumId: null,
+  selectedAlbumArtist: null,
+  selectedAlbumTitle: null,
+  selectedAlbumCoverUrl: null,
+  selectedAlbumReleaseDate: null,
+  selectedAlbumTotalTracks: 0,
   history: [{ type: "library", section: "tracks" }],
   currentIndex: 0,
   lyricsMode: "karaoke",
@@ -759,6 +816,22 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       }
       return;
     }
+    if (view === "album-detail") {
+      if (state.selectedAlbumId) {
+        state.navigate({
+          type: "album-detail",
+          albumId: state.selectedAlbumId,
+          artistName: state.selectedAlbumArtist ?? undefined,
+          albumTitle: state.selectedAlbumTitle ?? undefined,
+          coverUrl: state.selectedAlbumCoverUrl,
+          releaseDate: state.selectedAlbumReleaseDate ?? undefined,
+          totalTracks: state.selectedAlbumTotalTracks || undefined,
+        });
+      } else {
+        state.navigate({ type: "search", query: "" });
+      }
+      return;
+    }
     if (view === "stats") {
       state.navigate({ type: "stats" });
       return;
@@ -781,8 +854,19 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   openPlaylist: (playlistId) =>
     get().navigate({ type: "playlist", playlistId }),
 
-  openArtist: (artistId) =>
-    get().navigate({ type: "artist-detail", artistId }),
+  openArtist: (artistId, spotifyArtistId) =>
+    get().navigate({ type: "artist-detail", artistId, spotifyArtistId }),
+
+  openAlbum: (album) =>
+    get().navigate({
+      type: "album-detail",
+      albumId: album.id,
+      artistName: album.artist || album.artists.join(", "),
+      albumTitle: album.title,
+      coverUrl: album.coverUrl,
+      releaseDate: album.releaseDate,
+      totalTracks: album.totalTracks,
+    }),
 
   navigate: (entry) => {
     const nextEntry = normalizeNavigationEntry(entry);
@@ -1028,6 +1112,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         playbackQueue,
         queueIndex,
       });
+      // Liked/Spotify rows resolve local availability from their own snapshot.
+      // Re-running the match after any library change keeps statuses live
+      // without a page reload.
+      void useSpotifyLikedStore.getState().refresh();
     } catch (error) {
       console.error("[player] could not refresh library:", error);
     }

@@ -11,8 +11,9 @@ import {
   SkipBack,
   SkipForward,
 } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { usePlayerStore } from "@/store/playerStore";
+import { useIsLiked, usePlaylistStore } from "@/store/playlistStore";
 import { useDownloadStore } from "@/store/downloadStore";
 import { useTrackMenuStore } from "@/store/contextMenuStore";
 import { useLucidSettingsStore } from "@/store/lucidSettingsStore";
@@ -88,8 +89,8 @@ export function PlayerBar({
   const playerHeight = useLucidSettingsStore((state) => state.playerHeight);
   const downloadActive = useDownloadStore((state) => state.activeCount);
   const toggleDownloads = useDownloadStore((state) => state.toggle);
-
-  const [liked, setLiked] = useState(false);
+  const toggleLike = usePlaylistStore((state) => state.toggleLike);
+  const liked = useIsLiked(track?.path);
 
   const compactPlayer = playerHeight < 56;
   const tinyPlayer = playerHeight < 48;
@@ -197,10 +198,13 @@ export function PlayerBar({
           </div>
 
           <IconButton
-            label={liked ? "Remove from favourites" : "Add to favourites"}
+            label={liked ? "Remove from Liked Songs" : "Add to Liked Songs"}
             size="sm"
-            onClick={() => setLiked((value) => !value)}
-            className={cn("shrink-0", liked && "text-rose-400")}
+            onClick={() => {
+              if (track) void toggleLike(track);
+            }}
+            disabled={!track}
+            className={cn("shrink-0", liked && "text-accent")}
           >
             <Heart className={cn("h-3.5 w-3.5", liked && "fill-current")} />
           </IconButton>

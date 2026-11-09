@@ -18,7 +18,12 @@ interface PlaylistData {
 
 const EMPTY: PlaylistData = { version: 1, playlists: [] };
 
+export const LIKED_PLAYLIST_ID = "liked-songs";
+export const LIKED_PLAYLIST_NAME = "Liked Songs";
+export const LIKED_PLAYLIST_DESCRIPTION = "Your favorite tracks";
+
 export interface PlaylistCreateInput {
+  id?: string;
   name: string;
   description?: string;
   trackPaths?: string[];
@@ -107,6 +112,7 @@ export class PlaylistStore {
   constructor(private readonly file: string) {
     mkdirSync(path.dirname(file), { recursive: true });
     this.data = this.read();
+    this.ensureLiked();
     if (!existsSync(file)) this.save();
   }
 
@@ -149,8 +155,57 @@ export class PlaylistStore {
     renameSync(tmp, this.file);
   }
 
+  /**
+   * Liked Songs is a system playlist: it keeps a fixed id so UI hearts can
+   * resolve it without name lookups, including after older versions stored it
+   * with a generated UUID.
+   */
+  ensureLiked(): Playlist {
+    const byId = this.get(LIKED_PLAYLIST_ID);
+    if (byId) {
+      let changed = false;
+      if (byId.name !== LIKED_PLAYLIST_NAME) {
+        byId.name = LIKED_PLAYLIST_NAME;
+        changed = true;
+      }
+      if (!byId.description?.trim()) {
+        byId.description = LIKED_PLAYLIST_DESCRIPTION;
+        changed = true;
+      }
+      if (changed) {
+        byId.updatedAt = Date.now();
+        this.save();
+      }
+      return structuredClone(byId);
+    }
+
+    const byName = this.data.playlists.find(
+      (playlist) => playlist.name.trim().toLowerCase() === "liked songs",
+    );
+    if (byName) {
+      byName.id = LIKED_PLAYLIST_ID;
+      byName.name = LIKED_PLAYLIST_NAME;
+      if (!byName.description?.trim()) {
+        byName.description = LIKED_PLAYLIST_DESCRIPTION;
+      }
+      byName.updatedAt = Date.now();
+      this.save();
+      return structuredClone(byName);
+    }
+
+    return this.create({
+      id: LIKED_PLAYLIST_ID,
+      name: LIKED_PLAYLIST_NAME,
+      description: LIKED_PLAYLIST_DESCRIPTION,
+    });
+  }
+
   getAll(): Playlist[] {
-    return [...this.data.playlists].sort((a, b) => b.updatedAt - a.updatedAt);
+    return [...this.data.playlists].sort((a, b) => {
+      if (a.id === LIKED_PLAYLIST_ID) return -1;
+      if (b.id === LIKED_PLAYLIST_ID) return 1;
+      return b.updatedAt - a.updatedAt;
+    });
   }
 
   get(id: string): Playlist | undefined {
@@ -159,8 +214,12 @@ export class PlaylistStore {
 
   create(input: PlaylistCreateInput): Playlist {
     const now = Date.now();
+    const requestedId = input.id?.trim();
+    if (requestedId && this.get(requestedId)) {
+      throw new Error(`Playlist id already exists: ${requestedId}`);
+    }
     const playlist: Playlist = {
-      id: randomUUID(),
+      id: requestedId || randomUUID(),
       name: input.name?.trim() || "Untitled playlist",
       description: input.description?.trim() || undefined,
       trackPaths: uniquePaths(input.trackPaths ?? []),
@@ -192,6 +251,9 @@ export class PlaylistStore {
   }
 
   delete(id: string): boolean {
+    if (id === LIKED_PLAYLIST_ID) {
+      throw new Error("Liked Songs cannot be deleted");
+    }
     const before = this.data.playlists.length;
     this.data.playlists = this.data.playlists.filter((playlist) => playlist.id !== id);
     if (this.data.playlists.length === before) return false;

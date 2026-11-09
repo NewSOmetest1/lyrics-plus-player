@@ -1,11 +1,16 @@
 import { create } from "zustand";
 
-import type { Playlist } from "@/types";
+import type { Playlist, Track } from "@/types";
+import { LIKED_PLAYLIST_ID } from "@/types";
 import { backend } from "@/lib/api";
+import { useSettingsStore } from "@/store/settingsStore";
+import { useSpotifyLikedStore } from "@/store/spotifyLikedStore";
 import { useToastStore } from "@/store/toastStore";
 
 interface PlaylistState {
   playlists: Playlist[];
+  /** Normalized paths of every track in the system Liked Songs playlist. */
+  likedPaths: Set<string>;
   loaded: boolean;
   loading: boolean;
 
@@ -31,6 +36,8 @@ interface PlaylistState {
   importM3U: () => Promise<Playlist | null>;
   exportM3U: (playlistId: string) => Promise<string | null>;
   ensureLiked: () => Promise<Playlist | null>;
+  isLiked: (trackPath: string) => boolean;
+  toggleLike: (track: Track) => Promise<boolean>;
 }
 
 function reportError(error: unknown): void {
@@ -41,8 +48,49 @@ function reportError(error: unknown): void {
   });
 }
 
+/** Match the desktop playlist store's path comparison in the renderer. */
+export function normalizeTrackPath(value: string): string {
+  const normalized = value.trim().replace(/\\/g, "/").replace(/\/+/g, "/");
+  const cleaned = normalized.replace(/\/\.\//g, "/");
+  return cleaned.length > 1 ? cleaned.replace(/\/$/, "") : cleaned;
+}
+
+function likedPathSet(playlists: Playlist[]): Set<string> {
+  const liked = playlists.find(
+    (playlist) => playlist.id === LIKED_PLAYLIST_ID,
+  );
+  return new Set((liked?.trackPaths ?? []).map(normalizeTrackPath));
+}
+
+/** The system playlist always stays at the top of the sidebar and library. */
+function pinLikedFirst(playlists: Playlist[]): Playlist[] {
+  const liked = playlists.find(
+    (playlist) => playlist.id === LIKED_PLAYLIST_ID,
+  );
+  if (!liked) return playlists;
+  return [liked, ...playlists.filter((playlist) => playlist.id !== LIKED_PLAYLIST_ID)];
+}
+
+function playlistPatch(playlists: Playlist[]) {
+  const ordered = pinLikedFirst(playlists);
+  return { playlists: ordered, likedPaths: likedPathSet(ordered) };
+}
+
+/** Reactive selector: returns true only when this exact track is liked. */
+export function useIsLiked(trackPath: string | null | undefined): boolean {
+  const local = usePlaylistStore((state) =>
+    trackPath ? state.likedPaths.has(normalizeTrackPath(trackPath)) : false,
+  );
+  const spotify = useSpotifyLikedStore((state) =>
+    trackPath ? state.likedPaths.has(trackPath) : false,
+  );
+  const source = useSettingsStore((state) => state.likedSongsSource);
+  return source === "spotify" ? local || spotify : local;
+}
+
 export const usePlaylistStore = create<PlaylistState>((set, get) => ({
   playlists: [],
+  likedPaths: new Set<string>(),
   loaded: false,
   loading: false,
 
@@ -50,8 +98,15 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
     if (get().loading) return;
     set({ loading: true });
     try {
-      const playlists = await backend.getPlaylists();
-      set({ playlists, loaded: true, loading: false });
+      let playlists = await backend.getPlaylists();
+      if (!playlists.some((playlist) => playlist.id === LIKED_PLAYLIST_ID)) {
+        const liked = await backend.ensureLikedPlaylist();
+        playlists = [
+          liked,
+          ...playlists.filter((playlist) => playlist.id !== liked.id),
+        ];
+      }
+      set({ ...playlistPatch(playlists), loaded: true, loading: false });
     } catch (error) {
       set({ loaded: true, loading: false });
       reportError(error);
@@ -62,7 +117,10 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
     try {
       const playlist = await backend.createPlaylist(input);
       set((state) => ({
-        playlists: [playlist, ...state.playlists.filter((item) => item.id !== playlist.id)],
+        ...playlistPatch([
+          playlist,
+          ...state.playlists.filter((item) => item.id !== playlist.id),
+        ]),
         loaded: true,
       }));
       return playlist;
@@ -76,7 +134,10 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
     try {
       const playlist = await backend.updatePlaylist(id, patch);
       set((state) => ({
-        playlists: [playlist, ...state.playlists.filter((item) => item.id !== id)],
+        ...playlistPatch([
+          playlist,
+          ...state.playlists.filter((item) => item.id !== id),
+        ]),
       }));
       return playlist;
     } catch (error) {
@@ -90,7 +151,9 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
       const removed = await backend.deletePlaylist(id);
       if (removed) {
         set((state) => ({
-          playlists: state.playlists.filter((playlist) => playlist.id !== id),
+          ...playlistPatch(
+            state.playlists.filter((playlist) => playlist.id !== id),
+          ),
         }));
       }
       return removed;
@@ -105,10 +168,12 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
       const result = await backend.addTrackToPlaylist(playlistId, trackPath);
       if (result.changed) {
         set((state) => ({
-          playlists: [
+          ...playlistPatch([
             result.playlist,
-            ...state.playlists.filter((playlist) => playlist.id !== playlistId),
-          ],
+            ...state.playlists.filter(
+              (playlist) => playlist.id !== playlistId,
+            ),
+          ]),
         }));
       }
       return result;
@@ -123,8 +188,10 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
       const result = await backend.removeTrackFromPlaylist(playlistId, trackPath);
       if (result.changed) {
         set((state) => ({
-          playlists: state.playlists.map((playlist) =>
-            playlist.id === playlistId ? result.playlist : playlist,
+          ...playlistPatch(
+            state.playlists.map((playlist) =>
+              playlist.id === playlistId ? result.playlist : playlist,
+            ),
           ),
         }));
       }
@@ -140,7 +207,10 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
       const playlist = await backend.importM3U();
       if (playlist) {
         set((state) => ({
-          playlists: [playlist, ...state.playlists.filter((item) => item.id !== playlist.id)],
+          ...playlistPatch([
+            playlist,
+            ...state.playlists.filter((item) => item.id !== playlist.id),
+          ]),
           loaded: true,
         }));
         useToastStore.getState().push({
@@ -174,14 +244,93 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
   },
 
   ensureLiked: async () => {
-    const existing = get().playlists.find(
-      (playlist) => playlist.name.trim().toLowerCase() === "liked songs",
-    );
-    if (existing) return existing;
-    const playlist = await get().create({
-      name: "Liked Songs",
-      description: "Tracks you love",
-    });
-    return playlist;
+    try {
+      const playlist = await backend.ensureLikedPlaylist();
+      set((state) => ({
+        ...playlistPatch([
+          playlist,
+          ...state.playlists.filter((item) => item.id !== playlist.id),
+        ]),
+        loaded: true,
+      }));
+      return playlist;
+    } catch (error) {
+      reportError(error);
+      return null;
+    }
+  },
+
+  isLiked: (trackPath) => {
+    if (!trackPath.trim()) return false;
+    return get().likedPaths.has(normalizeTrackPath(trackPath));
+  },
+
+  toggleLike: async (track) => {
+    const trackPath = track.path?.trim();
+    if (!trackPath) return false;
+
+    const likedPlaylist =
+      get().playlists.find(
+        (playlist) => playlist.id === LIKED_PLAYLIST_ID,
+      ) ?? (await get().ensureLiked());
+    if (!likedPlaylist) return false;
+
+    const source = useSettingsStore.getState().likedSongsSource;
+    const spotifyStore = useSpotifyLikedStore.getState();
+    const spotifyItem =
+      source === "spotify" ? spotifyStore.itemForPath(trackPath) : null;
+    const wasLiked = get().likedPaths.has(normalizeTrackPath(trackPath));
+
+    // Reverse-sync when this track belongs to the Spotify liked collection.
+    if (spotifyItem) {
+      try {
+        await spotifyStore.setLiked(spotifyItem.id, false);
+      } catch (error) {
+        reportError(error);
+        return true;
+      }
+      if (wasLiked) await get().removeTrack(likedPlaylist.id, trackPath);
+      useToastStore.getState().push({
+        kind: "info",
+        title: "💔 Removed from Liked Songs",
+        description: track.title,
+      });
+      return false;
+    }
+
+    if (wasLiked) {
+      const result = await get().removeTrack(likedPlaylist.id, trackPath);
+      if (!result?.changed) return true;
+      useToastStore.getState().push({
+        kind: "info",
+        title: "💔 Removed from Liked Songs",
+        description: track.title,
+      });
+      return false;
+    }
+
+    // Tracks that were previously unliked still have a known Spotify id.
+    if (source === "spotify") {
+      const knownId = spotifyStore.knownIdForPath(trackPath);
+      if (knownId) {
+        try {
+          await spotifyStore.setLiked(knownId, true);
+        } catch (error) {
+          reportError(error);
+          return false;
+        }
+      }
+    }
+
+    const result = await get().addTrack(likedPlaylist.id, trackPath);
+    if (!result) return false;
+    if (result.changed) {
+      useToastStore.getState().push({
+        kind: "success",
+        title: "❤️ Added to Liked Songs",
+        description: track.title,
+      });
+    }
+    return true;
   },
 }));

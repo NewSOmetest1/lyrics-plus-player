@@ -1,16 +1,19 @@
-import { ListMusic } from "lucide-react";
+import { Heart, ListMusic } from "lucide-react";
 
 import type { Track } from "@/types";
+import { LIKED_PLAYLIST_GRADIENT } from "@/types";
 import { cn } from "@/lib/cn";
 import { CoverArt } from "@/components/ui/CoverArt";
 
 export function PlaylistCover({
   tracks,
+  liked = false,
   size,
   className,
   iconClassName,
 }: {
   tracks: Track[];
+  liked?: boolean;
   size?: number;
   className?: string;
   iconClassName?: string;
@@ -25,7 +28,18 @@ export function PlaylistCover({
       )}
       style={size ? { width: size, height: size } : undefined}
     >
-      {tracks.length === 0 ? (
+      {liked ? (
+        <span
+          className="flex h-full w-full items-center justify-center"
+          style={{ background: LIKED_PLAYLIST_GRADIENT }}
+        >
+          <Heart
+            className="h-1/2 w-1/2 text-white drop-shadow-[0_6px_18px_rgba(0,0,0,.35)]"
+            fill="currentColor"
+            strokeWidth={1.4}
+          />
+        </span>
+      ) : tracks.length === 0 ? (
         <span className="flex h-full w-full items-center justify-center bg-gradient-to-br from-accent/25 via-accent/[0.06] to-white/[0.02]">
           <ListMusic
             className={cn("h-1/3 w-1/3 text-accent/75", iconClassName)}

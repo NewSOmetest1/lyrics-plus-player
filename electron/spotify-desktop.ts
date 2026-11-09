@@ -402,11 +402,120 @@ function parseProtoString(value: Buffer): string | null {
   return null;
 }
 
-/** Read the collection artist list from a Spotify desktop cache folder. */
-export function readSpotifyDesktopFollowedArtists(): SpotifyDesktopCollection | null {
-  const directory = databaseDirectory();
-  if (!directory) return null;
+interface ProtoField {
+  field: number;
+  wire: number;
+  value: Buffer | number;
+}
 
+/** Minimal protobuf decoder for the fields Spotify metadata stores. */
+function readProtoFields(value: Buffer): ProtoField[] {
+  const fields: ProtoField[] = [];
+  let position = 0;
+  while (position < value.length) {
+    let tag: number;
+    try {
+      [tag, position] = readVarint(value, position);
+    } catch {
+      break;
+    }
+    const field = tag >> 3;
+    const wire = tag & 7;
+    if (wire === 2) {
+      let length: number;
+      try {
+        [length, position] = readVarint(value, position);
+      } catch {
+        break;
+      }
+      if (position + length > value.length) break;
+      fields.push({
+        field,
+        wire,
+        value: value.subarray(position, position + length),
+      });
+      position += length;
+    } else if (wire === 0) {
+      let number: number;
+      try {
+        [number, position] = readVarint(value, position);
+      } catch {
+        break;
+      }
+      fields.push({ field, wire, value: number });
+    } else if (wire === 1) {
+      position += 8;
+    } else if (wire === 5) {
+      position += 4;
+    } else {
+      break;
+    }
+  }
+  return fields;
+}
+
+function protoText(field: ProtoField | undefined): string | null {
+  if (!field || field.wire !== 2) return null;
+  const text = (field.value as Buffer).toString("utf8").trim();
+  return text || null;
+}
+
+function protoNumber(field: ProtoField | undefined): number | null {
+  return field && field.wire === 0 ? Number(field.value) : null;
+}
+
+/** Spotify stores Track.duration (field 7) as `sint32` milliseconds. */
+function zigzagNumber(value: number): number {
+  return (value >>> 1) ^ -(value & 1);
+}
+
+/**
+ * Spotify wraps cached metadata in one or two protobuf `Any` envelopes:
+ * `{ 1: 10, 2: {...} }` and `{ 1: typeUrl, 2: payload }`. Peel them until the
+ * actual `spotify.metadata.Track` message remains.
+ */
+function unwrapTrackMetadata(value: Buffer): Buffer {
+  let current = value;
+  for (let depth = 0; depth < 4; depth += 1) {
+    const fields = readProtoFields(current);
+    if (fields.length !== 2 || fields[0].field !== 1 || fields[1].field !== 2) {
+      break;
+    }
+    const first = fields[0];
+    const second = fields[1];
+    if (second.wire !== 2) break;
+    if (first.wire === 0) {
+      current = second.value as Buffer;
+      continue;
+    }
+    if (first.wire === 2) {
+      const typeUrl = (first.value as Buffer).toString("utf8");
+      if (!typeUrl.includes("spotify.metadata.Track")) break;
+      current = second.value as Buffer;
+      continue;
+    }
+    break;
+  }
+  return current;
+}
+
+const SPOTIFY_IMAGE_PATTERN =
+  /https:\/\/i\.scdn\.co\/image\/[A-Za-z0-9]+/g;
+
+function readCoverUrl(value: Buffer | undefined): string | null {
+  if (!value) return null;
+  const urls = value.toString("latin1").match(SPOTIFY_IMAGE_PATTERN) ?? [];
+  return (
+    urls.find((url) => url.includes("0000b273")) ??
+    urls.find((url) => url.includes("00001e02")) ??
+    urls[0] ??
+    null
+  );
+}
+
+function readDatabaseEntries(
+  directory: string,
+): Map<string, DbEntry> | null {
   let names: string[] = [];
   try {
     names = readdirSync(directory);
@@ -438,6 +547,136 @@ export function readSpotifyDesktopFollowedArtists(): SpotifyDesktopCollection | 
     if (!Number.isFinite(number) || number <= latestSst) continue;
     readLog(path.join(directory, name), remember);
   }
+
+  return entries;
+}
+
+export interface SpotifyDesktopLikedTrack {
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  durationMs: number;
+  coverUrl: string | null;
+  addedAt: number;
+}
+
+export interface SpotifyDesktopLikedCollection {
+  tracks: SpotifyDesktopLikedTrack[];
+  source: string;
+  missingMetadata: number;
+}
+
+/**
+ * Read liked tracks from the Spotify desktop collection.
+ *
+ * Keys such as `#col#col.trk#addtime#…#$spotify:track:<id>#` mark saved
+ * tracks; the matching `!xmeta#cache#…#$spotify:track:<id>#` entries contain a
+ * `spotify.metadata.Track` payload with title, artists, album, duration and
+ * cover. This is used when the signed-in web account is not the account that
+ * owns the user's desktop library.
+ */
+export function readSpotifyDesktopLikedTracks(): SpotifyDesktopLikedCollection | null {
+  const directory = databaseDirectory();
+  if (!directory) return null;
+  const entries = readDatabaseEntries(directory);
+  if (!entries) return null;
+
+  const liked = new Map<string, string>();
+  const metadata = new Map<string, Buffer>();
+  const covers = new Map<string, Buffer>();
+  const trackKeyPattern = /\$spotify:track:([A-Za-z0-9]{22})#?$/;
+  const xmetaKeyPattern = /#\$spotify:track:([A-Za-z0-9]{22})#$/;
+
+  for (const entry of entries.values()) {
+    if (entry.key.startsWith("#col#col.trk")) {
+      const match = trackKeyPattern.exec(entry.key);
+      if (match) liked.set(match[1], entry.key);
+      continue;
+    }
+    if (!entry.key.startsWith("!xmeta#cache#")) continue;
+    const match = xmetaKeyPattern.exec(entry.key);
+    if (!match) continue;
+    const id = match[1];
+    if (entry.value.includes("spotify.metadata.Track")) {
+      const current = metadata.get(id);
+      if (!current || entry.value.length > current.length) {
+        metadata.set(id, entry.value);
+      }
+    }
+    if (entry.value.includes("VisualIdentityTrait")) {
+      const current = covers.get(id);
+      if (!current || entry.value.length > current.length) {
+        covers.set(id, entry.value);
+      }
+    }
+  }
+
+  const tracks: SpotifyDesktopLikedTrack[] = [];
+  let missingMetadata = 0;
+  for (const id of liked.keys()) {
+    const raw = metadata.get(id);
+    if (!raw) {
+      missingMetadata += 1;
+      continue;
+    }
+    const fields = readProtoFields(unwrapTrackMetadata(raw));
+    const title = protoText(fields.find((field) => field.field === 2));
+    if (!title) {
+      missingMetadata += 1;
+      continue;
+    }
+    const albumField = fields.find(
+      (field) => field.field === 3 && field.wire === 2,
+    );
+    const albumFields = albumField
+      ? readProtoFields(albumField.value as Buffer)
+      : [];
+    const album = protoText(
+      albumFields.find((field) => field.field === 2),
+    );
+    const artists = fields
+      .filter((field) => field.field === 4 && field.wire === 2)
+      .map((field) =>
+        protoText(
+          readProtoFields(field.value as Buffer).find(
+            (inner) => inner.field === 2,
+          ),
+        ),
+      )
+      .filter((name): name is string => Boolean(name));
+    const albumArtists = albumFields
+      .filter((field) => field.field === 3 && field.wire === 2)
+      .map((field) =>
+        protoText(
+          readProtoFields(field.value as Buffer).find(
+            (inner) => inner.field === 2,
+          ),
+        ),
+      )
+      .filter((name): name is string => Boolean(name));
+    const durationRaw = protoNumber(fields.find((field) => field.field === 7));
+    const durationMs = durationRaw === null ? 0 : zigzagNumber(durationRaw);
+    tracks.push({
+      id,
+      title,
+      artist: (artists.length > 0 ? artists : albumArtists).join(", "),
+      album: album ?? "",
+      durationMs,
+      coverUrl: readCoverUrl(covers.get(id)),
+      addedAt: 0,
+    });
+  }
+
+  return { tracks, source: directory, missingMetadata };
+}
+
+/** Read the collection artist list from a Spotify desktop cache folder. */
+export function readSpotifyDesktopFollowedArtists(): SpotifyDesktopCollection | null {
+  const directory = databaseDirectory();
+  if (!directory) return null;
+  const entries = readDatabaseEntries(directory);
+  if (!entries) return null;
 
   const artists = new Map<string, SpotifyDesktopArtist>();
   for (const entry of entries.values()) {

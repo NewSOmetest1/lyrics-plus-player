@@ -18,6 +18,7 @@ import {
   UserRound,
 } from "lucide-react";
 import type { Track } from "@/types";
+import { isLikedPlaylist } from "@/types";
 import { isDesktop } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { usePlayerStore } from "@/store/playerStore";
@@ -226,12 +227,14 @@ export function Sidebar({
     if (id === "artists") {
       return (
         view === "artist" ||
+        view === "album-detail" ||
         (view === "library" && librarySection === "artists")
       );
     }
     if (id === "stats") return view === "stats";
     if (id === "releases") return view === "releases";
     if (id === "now-playing") return view === "player" && !focusMode;
+    if (id === "search") return view === "search";
     if (id === "karaoke") return view === "karaoke" || focusMode;
     return false;
   };
@@ -444,6 +447,8 @@ export function Sidebar({
               {playlists.map((playlist) => {
                 const active =
                   view === "playlist" && selectedPlaylistId === playlist.id;
+                const liked = isLikedPlaylist(playlist);
+                const count = playlist.trackPaths.length;
                 return (
                   <button
                     key={playlist.id}
@@ -461,6 +466,7 @@ export function Sidebar({
                   >
                     <PlaylistCover
                       tracks={playlistTracks(playlist.trackPaths)}
+                      liked={liked}
                       size={coverSize}
                       className="rounded-lg"
                       iconClassName="h-4 w-4"
@@ -479,7 +485,9 @@ export function Sidebar({
                         {playlist.name}
                       </span>
                       <span className="block truncate text-[10.5px] text-white/30">
-                        {formatCount(playlist.trackPaths.length, "track")}
+                        {liked
+                          ? `Playlist • ${count} ${count === 1 ? "song" : "songs"}`
+                          : formatCount(count, "track")}
                       </span>
                     </span>
                   </button>
