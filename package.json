@@ -53,9 +53,9 @@
     ],
     "linux": {
       "target": [
-        "AppImage",
-        "deb"
+        "AppImage"
       ],
+      "executableName": "lyrics-plus-player",
       "category": "AudioVideo",
       "icon": "assets/icon.png"
     }
