@@ -99,6 +99,12 @@ export interface Track {
   modifiedAt: number;
   coverPath: string | null;
   coverFullPath: string | null;
+  /**
+   * Artwork URL used only for palette extraction. Kept pointing at the
+   * pre-migration original so ambient accents do not shift; absent in old
+   * libraries and ignored by old builds.
+   */
+  coverPalettePath?: string | null;
   hasEmbeddedLyrics: boolean;
   addedAt: number;
 }

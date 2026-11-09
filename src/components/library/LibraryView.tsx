@@ -381,11 +381,11 @@ export function LibraryView() {
         className="no-scrollbar min-h-0 flex-1 overflow-y-auto"
       >
         {librarySection === "artists" ? (
-          <ArtistGrid query={search} />
+          <ArtistGrid query={search} scrollRef={scrollRef} />
         ) : librarySection === "albums" ? (
-          <AlbumGrid query={search} />
+          <AlbumGrid query={search} scrollRef={scrollRef} />
         ) : librarySection === "playlists" ? (
-          <PlaylistGrid query={search} />
+          <PlaylistGrid query={search} scrollRef={scrollRef} />
         ) : (
           <div className="px-6 pb-6 lg:px-8">
         {tracks.length === 0 ? (

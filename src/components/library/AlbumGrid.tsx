@@ -1,36 +1,48 @@
-import { useMemo } from "react";
-import { motion } from "framer-motion";
+import { memo, useMemo, type RefObject } from "react";
 import { Disc3, Play } from "lucide-react";
 
 import type { AlbumGroup } from "@/types";
 import { buildAlbumGroups } from "@/lib/artists";
+import { cn } from "@/lib/cn";
 import { formatCount } from "@/lib/format";
 import { usePlayerStore } from "@/store/playerStore";
 import { CoverArt } from "@/components/ui/CoverArt";
+import { VirtualMediaGrid } from "@/components/library/VirtualMediaGrid";
 
-function AlbumCard({ album, index }: { album: AlbumGroup; index: number }) {
-  const playTrack = usePlayerStore((state) => state.playTrack);
-  const setShuffle = usePlayerStore((state) => state.setShuffle);
-  const navigate = usePlayerStore((state) => state.navigate);
-
+const AlbumCard = memo(function AlbumCard({
+  album,
+  index,
+  animateIn = true,
+}: {
+  album: AlbumGroup;
+  index: number;
+  animateIn?: boolean;
+}) {
   const openAlbum = () => {
-    navigate({ type: "search", query: album.album });
+    usePlayerStore.getState().navigate({ type: "search", query: album.album });
   };
 
   const playAlbum = () => {
     if (album.tracks.length === 0) return;
+    const { playTrack, setShuffle } = usePlayerStore.getState();
     setShuffle(false);
     void playTrack(album.tracks[0], 0, album.tracks);
   };
 
   return (
-    <motion.div
+    <div
       role="button"
       tabIndex={0}
       aria-label={`Open ${album.album}`}
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.28, delay: Math.min(index * 0.012, 0.2) }}
+      className={cn(
+        animateIn && "media-card-enter",
+        "library-media-card lucid-glass-panel group relative min-w-0 cursor-pointer rounded-2xl p-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/60",
+      )}
+      style={
+        animateIn
+          ? { animationDelay: `${Math.min(index * 0.012, 0.2)}s` }
+          : undefined
+      }
       onClick={openAlbum}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return;
@@ -39,7 +51,6 @@ function AlbumCard({ album, index }: { album: AlbumGroup; index: number }) {
           openAlbum();
         }
       }}
-      className="library-media-card lucid-glass-panel group relative min-w-0 cursor-pointer rounded-2xl p-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
     >
       <div className="relative">
         <CoverArt
@@ -68,11 +79,17 @@ function AlbumCard({ album, index }: { album: AlbumGroup; index: number }) {
         {album.artist} <span className="text-white/20">•</span>{" "}
         {formatCount(album.trackCount, "track")}
       </p>
-    </motion.div>
+    </div>
   );
-}
+});
 
-export function AlbumGrid({ query = "" }: { query?: string }) {
+export function AlbumGrid({
+  query = "",
+  scrollRef,
+}: {
+  query?: string;
+  scrollRef: RefObject<HTMLDivElement>;
+}) {
   const tracks = usePlayerStore((state) => state.tracks);
   const albums = useMemo(() => buildAlbumGroups(tracks), [tracks]);
   const filtered = useMemo(() => {
@@ -110,17 +127,19 @@ export function AlbumGrid({ query = "" }: { query?: string }) {
           </p>
         </div>
       ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-            gap: 20,
-          }}
-        >
-          {filtered.map((album, index) => (
-            <AlbumCard key={album.key} album={album} index={index} />
-          ))}
-        </div>
+        <VirtualMediaGrid
+          items={filtered}
+          itemKey={(album) => album.key}
+          scrollRef={scrollRef}
+          layoutKey={query}
+          renderItem={(album, index, animateIn) => (
+            <AlbumCard
+              album={album}
+              index={index}
+              animateIn={animateIn}
+            />
+          )}
+        />
       )}
     </div>
   );

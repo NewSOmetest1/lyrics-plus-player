@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo, useMemo, type RefObject } from "react";
 import { Play, UserRound } from "lucide-react";
 
 import type { ArtistGroup } from "@/types";
@@ -6,6 +6,7 @@ import { formatCount } from "@/lib/format";
 import { useArtistGroups } from "@/hooks/useArtistGroups";
 import { usePlayerStore } from "@/store/playerStore";
 import { CoverArt } from "@/components/ui/CoverArt";
+import { VirtualMediaGrid } from "@/components/library/VirtualMediaGrid";
 
 /**
  * One card in a grid that can contain hundreds of artists. Kept out of the
@@ -74,7 +75,13 @@ const ArtistCard = memo(function ArtistCard({ artist }: { artist: ArtistGroup })
   );
 });
 
-export const ArtistGrid = memo(function ArtistGrid({ query = "" }: { query?: string }) {
+export const ArtistGrid = memo(function ArtistGrid({
+  query = "",
+  scrollRef,
+}: {
+  query?: string;
+  scrollRef: RefObject<HTMLDivElement>;
+}) {
   // `useArtistGroups` already memoizes the aggregation by tracks reference, so
   // playback ticks, volume changes and other store updates never rebuild it.
   const artists = useArtistGroups();
@@ -115,20 +122,14 @@ export const ArtistGrid = memo(function ArtistGrid({ query = "" }: { query?: str
           </p>
         </div>
       ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-            gap: 20,
-          }}
-        >
-          {filtered.map((artist) => (
-            <ArtistCard
-              key={artist.name.toLocaleLowerCase()}
-              artist={artist}
-            />
-          ))}
-        </div>
+        <VirtualMediaGrid
+          items={filtered}
+          itemKey={(artist) => artist.name.toLocaleLowerCase()}
+          scrollRef={scrollRef}
+          layoutKey={query}
+          cardExtraHeight={56}
+          renderItem={(artist) => <ArtistCard artist={artist} />}
+        />
       )}
     </div>
   );

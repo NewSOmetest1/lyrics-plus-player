@@ -143,7 +143,9 @@ function accentFromSwatch(swatch: ScoredSwatch, vibrant: boolean): string {
  * cover's many near-black pixels dragged the mean saturation into monochrome.
  * Only a palette with no chromatic swatch at all is treated as black & white.
  */
-export function extractPalette(image: HTMLImageElement): Palette {
+export function extractPalette(
+  image: HTMLImageElement | HTMLCanvasElement | ImageBitmap,
+): Palette {
   let palette: ReturnType<typeof getPaletteSync>;
   try {
     palette = getPaletteSync(image, { colorCount: 8, quality: 10 });

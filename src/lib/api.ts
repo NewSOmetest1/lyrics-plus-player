@@ -1388,3 +1388,12 @@ export function coverUrl(track: Track | null, full = false): string | null {
   }
   return path;
 }
+
+/**
+ * Artwork used for palette extraction. Migrated tracks keep a reference to
+ * their pre-migration original so accent colors do not shift.
+ */
+export function coverPaletteUrl(track: Track | null): string | null {
+  if (!track) return null;
+  return track.coverPalettePath ?? track.coverFullPath ?? track.coverPath ?? null;
+}

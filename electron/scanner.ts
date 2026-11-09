@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, promises as fs, writeFileSync } from "node:fs";
+import { existsSync, promises as fs, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { nativeImage } from "electron";
@@ -94,48 +94,191 @@ async function walk(root: string, out: string[]): Promise<void> {
   }
 }
 
+const COVER_CARD_SIDE = 384;
+const COVER_DISPLAY_SIDE = 1280;
+const COVER_JPEG_QUALITY = 88;
+const COVER_HASH_LENGTH = 12;
+
+const COVER_MIME_BY_EXTENSION: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+  bmp: "image/bmp",
+};
+
+interface CoverVariants {
+  /** Small variant for rows, grids and the player bar. */
+  card: string;
+  /** Large variant for the hero artwork, ambient background and MPRIS. */
+  display: string;
+}
+
+function encodeCover(
+  image: ReturnType<typeof nativeImage.createFromBuffer>,
+  side: number,
+  keepAlpha: boolean,
+): { data: Buffer; extension: string } {
+  const size = image.getSize();
+  const largest = Math.max(size.width, size.height);
+  const resized =
+    largest > side
+      ? image.resize({
+          width: Math.max(1, Math.round((size.width * side) / largest)),
+          height: Math.max(1, Math.round((size.height * side) / largest)),
+          quality: "good",
+        })
+      : image;
+  return keepAlpha
+    ? { data: resized.toPNG(), extension: "png" }
+    : { data: resized.toJPEG(COVER_JPEG_QUALITY), extension: "jpg" };
+}
+
+function coverHasAlpha(
+  image: ReturnType<typeof nativeImage.createFromBuffer>,
+): boolean {
+  try {
+    const bitmap = image.toBitmap();
+    for (let index = 3; index < bitmap.length; index += 4) {
+      if (bitmap[index] < 255) return true;
+    }
+  } catch {
+    // If the bitmap cannot be inspected, fall back to opaque JPEG.
+  }
+  return false;
+}
+
+function prepareCoverImage(picture: {
+  format: string;
+  data: Uint8Array;
+}): {
+  image: ReturnType<typeof nativeImage.createFromBuffer>;
+  alpha: boolean;
+} | null {
+  const mime = picture.format.split(";")[0].trim().toLowerCase();
+  const image = nativeImage.createFromBuffer(Buffer.from(picture.data));
+  if (image.isEmpty()) return null;
+
+  const size = image.getSize();
+  if (size.width <= 0 || size.height <= 0) return null;
+
+  // Embedded covers are often 16:9 (YouTube) or otherwise rectangular.
+  // Center-crop to 1:1 before caching so the UI never stretches artwork.
+  const cropped =
+    size.width === size.height
+      ? image
+      : image.crop({
+          x: Math.floor((size.width - Math.min(size.width, size.height)) / 2),
+          y: Math.floor((size.height - Math.min(size.width, size.height)) / 2),
+          width: Math.min(size.width, size.height),
+          height: Math.min(size.width, size.height),
+        });
+
+  const alpha =
+    (mime === "image/png" || mime === "image/webp") &&
+    coverHasAlpha(cropped);
+  return { image: cropped, alpha };
+}
+
+/** Content-addressed file name: identical artwork is stored exactly once. */
+function writeCoverBytes(
+  coversDir: string,
+  data: Uint8Array,
+  extension: string,
+): string {
+  const digest = createHash("sha1")
+    .update(data)
+    .digest("hex")
+    .slice(0, COVER_HASH_LENGTH);
+  const fileName = `${digest}.${extension}`;
+  const target = path.join(coversDir, fileName);
+  if (!existsSync(target)) writeFileSync(target, data);
+  return coverUrl(fileName);
+}
+
 function writeCover(
   coversDir: string,
-  id: number,
   picture: { format: string; data: Uint8Array },
-): string | null {
+): CoverVariants | null {
   try {
-    const mime = picture.format.split(";")[0].trim().toLowerCase();
-    let extension = MIME_EXTENSION[mime] ?? "jpg";
-    let data: Uint8Array = picture.data;
-
-    // Embedded covers are often 16:9 (YouTube) or otherwise rectangular.
-    // Center-crop to 1:1 before caching so the UI never stretches artwork.
-    try {
-      const image = nativeImage.createFromBuffer(Buffer.from(picture.data));
-      if (!image.isEmpty()) {
-        const size = image.getSize();
-        if (size.width > 0 && size.height > 0 && size.width !== size.height) {
-          const side = Math.min(size.width, size.height);
-          const cropped = image.crop({
-            x: Math.floor((size.width - side) / 2),
-            y: Math.floor((size.height - side) / 2),
-            width: side,
-            height: side,
-          });
-          const png = mime === "image/png";
-          data = png ? cropped.toPNG() : cropped.toJPEG(94);
-          extension = png ? "png" : "jpg";
-        }
-      }
-    } catch {
-      // Unsupported image codec: keep the original bytes.
+    const prepared = prepareCoverImage(picture);
+    if (!prepared) {
+      // Unsupported image codec: keep the original bytes, but still dedupe.
+      const mime = picture.format.split(";")[0].trim().toLowerCase();
+      const extension = MIME_EXTENSION[mime] ?? "jpg";
+      const url = writeCoverBytes(coversDir, picture.data, extension);
+      return { card: url, display: url };
     }
 
-    const digest = createHash("sha1").update(data).digest("hex").slice(0, 10);
-    const fileName = `${id}-${digest}.${extension}`;
-    const target = path.join(coversDir, fileName);
-    if (!existsSync(target)) {
-      writeFileSync(target, data);
+    const cardData = encodeCover(
+      prepared.image,
+      COVER_CARD_SIDE,
+      prepared.alpha,
+    );
+    const card = writeCoverBytes(
+      coversDir,
+      cardData.data,
+      cardData.extension,
+    );
+
+    if (prepared.image.getSize().width <= COVER_CARD_SIDE) {
+      return { card, display: card };
     }
-    return coverUrl(fileName);
+
+    const displayData = encodeCover(
+      prepared.image,
+      COVER_DISPLAY_SIDE,
+      prepared.alpha,
+    );
+    return {
+      card,
+      display: writeCoverBytes(
+        coversDir,
+        displayData.data,
+        displayData.extension,
+      ),
+    };
   } catch (error) {
     console.error("[scanner] could not write cover:", error);
+    return null;
+  }
+}
+
+/** Extract a stored cover file name from a media://covers URL. */
+export function coverFileNameFromUrl(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "media:" || url.hostname !== "covers") return null;
+    return url.searchParams.get("file");
+  } catch {
+    return null;
+  }
+}
+
+/** New content-addressed names have no track id prefix. */
+export function isCoverVariantFileName(name: string): boolean {
+  return /^[0-9a-f]{12}\.(?:jpg|png)$/i.test(name);
+}
+
+/**
+ * Build card/display variants from an existing cached cover. Used by the
+ * background migration for libraries created before variants existed.
+ */
+export function ensureCoverVariantsFromFile(
+  coversDir: string,
+  fileName: string,
+): CoverVariants | null {
+  const safeName = path.basename(fileName);
+  const source = path.join(coversDir, safeName);
+  if (!existsSync(source)) return null;
+  try {
+    const extension = path.extname(safeName).slice(1).toLowerCase();
+    const format = COVER_MIME_BY_EXTENSION[extension] ?? "image/jpeg";
+    return writeCover(coversDir, { format, data: readFileSync(source) });
+  } catch (error) {
+    console.error("[scanner] could not migrate cover:", safeName, error);
     return null;
   }
 }
@@ -156,7 +299,22 @@ async function readTrack(
   const format = metadata.format;
   const id = stableId(canonicalPath);
   const picture = common.picture?.[0];
-  const cover = picture ? writeCover(coversDir, id, picture) : null;
+  const cover = picture ? writeCover(coversDir, picture) : null;
+  // Keep the pre-migration original as the palette source so ambient/header
+  // accents stay byte-for-byte identical to the old full-size sampling.
+  const previousCoverFile = coverFileNameFromUrl(previous?.coverPath ?? null);
+  const artworkUnchanged =
+    Boolean(previous) &&
+    previous!.modifiedAt === stat.mtimeMs &&
+    previous!.fileSize === stat.size;
+  const coverPalettePath = artworkUnchanged
+    ? previous!.coverPalettePath ??
+      (previousCoverFile && !isCoverVariantFileName(previousCoverFile)
+        ? previous!.coverPath
+        : null) ??
+      cover?.display ??
+      null
+    : cover?.display ?? null;
   const fileBaseName = path.basename(
     canonicalPath,
     path.extname(canonicalPath),
@@ -197,8 +355,9 @@ async function readTrack(
     fileSize: stat.size,
     fileName: path.basename(canonicalPath),
     modifiedAt: stat.mtimeMs,
-    coverPath: cover,
-    coverFullPath: cover,
+    coverPath: cover?.card ?? null,
+    coverFullPath: cover?.display ?? null,
+    coverPalettePath,
     hasEmbeddedLyrics: Boolean(common.lyrics?.length),
     addedAt: previous?.addedAt ?? Date.now(),
   };

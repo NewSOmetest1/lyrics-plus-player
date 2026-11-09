@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { coverUrl } from "@/lib/api";
+import { coverPaletteUrl, coverUrl } from "@/lib/api";
 import { hexToRgb, hslToHex, rgbToHsl, withAlpha } from "@/lib/colors";
 import { useCoverPalette } from "@/hooks/useCoverPalette";
+import { useRenderProbe } from "@/lib/renderProbe";
 import { usePlayerStore } from "@/store/playerStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useLucidSettingsStore } from "@/store/lucidSettingsStore";
@@ -86,10 +87,11 @@ function AmbientGlow({ background }: { background: string }) {
 }
 
 export function AmbientBackground() {
+  useRenderProbe("Ambient");
   const track = usePlayerStore((state) => state.currentTrack);
   const image = coverUrl(track, true);
   const palette = useCoverPalette(
-    image,
+    coverPaletteUrl(track),
     track ? `${track.title}${track.album}` : "lyricsplus",
   );
   const colorful = useSettingsStore((state) => state.ambientColorful);

@@ -104,17 +104,85 @@ function dedupeTracks(tracks: TrackRecord[]): TrackRecord[] {
  * Small JSON-backed library. SQLite is not required for a local-first player and
  * keeping the data in one file makes the Electron main process dependency-free.
  */
+const SETTINGS_SAVE_DELAY_MS = 300;
+
 export class LibraryStore {
   private data: LibraryData;
   private revision = 0;
   private migratedFolders = false;
+  private readonly settingsFile: string;
+  private settingsSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  private settingsDirty = false;
 
   constructor(private readonly file: string) {
+    this.settingsFile = path.join(path.dirname(file), "settings.json");
     mkdirSync(path.dirname(file), { recursive: true });
     this.data = this.read();
     // Persist the one-time legacy migration so the next launch reads the
     // source list instead of deriving it again.
     if (this.migratedFolders) this.save();
+    // Keep settings out of the 1.7 MB library rewrites on every slider tick.
+    // settings.json is authoritative when present; library.json remains a
+    // backward-compatible fallback for older builds.
+    if (!existsSync(this.settingsFile) && Object.keys(this.data.settings).length > 0) {
+      this.writeSettingsFile();
+    }
+  }
+
+  private readSettingsFile(): Record<string, string> | null {
+    if (!existsSync(this.settingsFile)) return null;
+    try {
+      const parsed = JSON.parse(
+        readFileSync(this.settingsFile, "utf8"),
+      ) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return null;
+      }
+      const settings: Record<string, string> = {};
+      for (const [key, value] of Object.entries(
+        parsed as Record<string, unknown>,
+      )) {
+        if (typeof value === "string") settings[key] = value;
+      }
+      return settings;
+    } catch (error) {
+      console.error(
+        "[library] could not read settings.json, falling back to library.json:",
+        error,
+      );
+      return null;
+    }
+  }
+
+  private writeSettingsFile(): void {
+    const tmp = `${this.settingsFile}.tmp`;
+    writeFileSync(tmp, JSON.stringify(this.data.settings));
+    renameSync(tmp, this.settingsFile);
+  }
+
+  private scheduleSettingsSave(): void {
+    this.settingsDirty = true;
+    if (this.settingsSaveTimer !== null) clearTimeout(this.settingsSaveTimer);
+    this.settingsSaveTimer = setTimeout(() => {
+      this.settingsSaveTimer = null;
+      this.flushPendingSettings();
+    }, SETTINGS_SAVE_DELAY_MS);
+  }
+
+  /** Write coalesced settings immediately (called on quit and before scans). */
+  flushPendingSettings(): void {
+    if (this.settingsSaveTimer !== null) {
+      clearTimeout(this.settingsSaveTimer);
+      this.settingsSaveTimer = null;
+    }
+    if (!this.settingsDirty) return;
+    this.settingsDirty = false;
+    try {
+      this.writeSettingsFile();
+    } catch (error) {
+      this.settingsDirty = true;
+      console.error("[library] could not persist settings:", error);
+    }
   }
 
   private read(): LibraryData {
@@ -126,6 +194,7 @@ export class LibraryStore {
         : [];
       this.migratedFolders =
         !Array.isArray(parsed.musicFolders) && tracks.length > 0;
+      const externalSettings = this.readSettingsFile();
       return {
         version: 1,
         tracks,
@@ -136,7 +205,10 @@ export class LibraryStore {
           : deriveMusicFolders(tracks),
         lyrics: parsed.lyrics && typeof parsed.lyrics === "object" ? parsed.lyrics : {},
         settings:
-          parsed.settings && typeof parsed.settings === "object" ? parsed.settings : {},
+          externalSettings ??
+          (parsed.settings && typeof parsed.settings === "object"
+            ? parsed.settings
+            : {}),
       };
     } catch (error) {
       console.error("[library] could not read library.json, starting empty:", error);
@@ -152,8 +224,11 @@ export class LibraryStore {
       Array.isArray(this.data.musicFolders) ? this.data.musicFolders : [],
     );
     const tmp = `${this.file}.tmp`;
-    writeFileSync(tmp, JSON.stringify(this.data, null, 2));
+    writeFileSync(tmp, JSON.stringify(this.data));
     renameSync(tmp, this.file);
+    // A structural save may race with a pending settings write. Flush now so
+    // settings.json cannot keep an older value than library.json.
+    this.flushPendingSettings();
   }
 
   /** Replace the library with a path-deduplicated snapshot. */
@@ -258,6 +333,25 @@ export class LibraryStore {
     track.modifiedAt = modifiedAt;
   }
 
+  /**
+   * Point a track at regenerated cover variants without touching the rest of
+   * the record. Used by the background cover migration.
+   */
+  setTrackCoverPaths(
+    trackId: number,
+    coverPath: string | null,
+    coverFullPath: string | null,
+    coverPalettePath?: string | null,
+  ): void {
+    const track = this.getTrack(trackId);
+    if (!track) return;
+    track.coverPath = coverPath;
+    track.coverFullPath = coverFullPath;
+    if (coverPalettePath !== undefined) {
+      track.coverPalettePath = coverPalettePath;
+    }
+  }
+
   upsertTrack(track: TrackRecord): "added" | "updated" {
     const normalized = normalizeTrack(track);
     const index = this.data.tracks.findIndex(
@@ -298,6 +392,6 @@ export class LibraryStore {
   setSetting(key: string, value: string): void {
     if (value.trim() === "") delete this.data.settings[key];
     else this.data.settings[key] = value;
-    this.save();
+    this.scheduleSettingsSave();
   }
 }

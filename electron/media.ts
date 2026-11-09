@@ -66,7 +66,11 @@ function decodeMediaPath(value: string | null): string | null {
   }
 }
 
-async function serveFile(filePath: string, request: Request): Promise<Response> {
+async function serveFile(
+  filePath: string,
+  request: Request,
+  cacheControl = "no-cache",
+): Promise<Response> {
   let stat;
   try {
     stat = await fs.stat(filePath);
@@ -80,7 +84,7 @@ async function serveFile(filePath: string, request: Request): Promise<Response> 
     ...CORS_HEADERS,
     "Content-Type": mimeFor(filePath),
     "Accept-Ranges": "bytes",
-    "Cache-Control": "no-cache",
+    "Cache-Control": cacheControl,
   };
 
   const range = request.headers.get("range");
@@ -120,7 +124,13 @@ export function registerMediaProtocol(coversDir: string): void {
       if (!file) return new Response("Not found", { status: 404, headers: CORS_HEADERS });
       const safeName = path.basename(file);
       const target = path.join(coversDir, safeName);
-      return serveFile(target, request);
+      // Cover names are content-addressed, so a stored file never changes.
+      // Let Chromium keep decoded artwork instead of revalidating each time.
+      return serveFile(
+        target,
+        request,
+        "public, max-age=31536000, immutable",
+      );
     }
 
     if (url.hostname === "audio") {

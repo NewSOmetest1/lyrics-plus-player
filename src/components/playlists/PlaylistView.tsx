@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -22,7 +22,7 @@ import type { DownloadRequest, Playlist, SpotifyLikedTrack, Track } from "@/type
 import { LIKED_PLAYLIST_ID, isLikedPlaylist } from "@/types";
 import { cn } from "@/lib/cn";
 import { formatCount, formatTime, formatTimeLong } from "@/lib/format";
-import { coverUrl } from "@/lib/api";
+import { coverPaletteUrl } from "@/lib/api";
 import { useCoverPalette } from "@/hooks/useCoverPalette";
 import { usePlayerStore } from "@/store/playerStore";
 import { usePlaylistStore } from "@/store/playlistStore";
@@ -41,8 +41,11 @@ import { EqualizerBars } from "@/components/ui/EqualizerBars";
 import { ArtistLinks } from "@/components/artists/ArtistLinks";
 import { PlaylistCover } from "@/components/playlists/PlaylistCover";
 import { SortDropdown } from "@/components/library/SortDropdown";
+import { VirtualRowList } from "@/components/library/VirtualRowList";
 
-function PlaylistTrackRow({
+const PLAYLIST_ROW_HEIGHT = 54;
+
+const PlaylistTrackRow = memo(function PlaylistTrackRow({
   playlist,
   track,
   index,
@@ -57,9 +60,9 @@ function PlaylistTrackRow({
   index: number;
   active: boolean;
   playing: boolean;
-  onPlay: () => void;
+  onPlay: (track: Track) => void;
   onPause: () => void;
-  onRemove: () => void;
+  onRemove: (track: Track) => void;
 }) {
   const openMenu = useTrackMenuStore((state) => state.openMenu);
 
@@ -67,9 +70,9 @@ function PlaylistTrackRow({
     <div
       role="row"
       tabIndex={0}
-      onDoubleClick={onPlay}
+      onDoubleClick={() => onPlay(track)}
       onKeyDown={(event) => {
-        if (event.key === "Enter") onPlay();
+        if (event.key === "Enter") onPlay(track);
       }}
       onContextMenu={(event) => {
         event.preventDefault();
@@ -104,7 +107,7 @@ function PlaylistTrackRow({
           onClick={(event) => {
             event.stopPropagation();
             if (active && playing) onPause();
-            else onPlay();
+            else onPlay(track);
           }}
           aria-label={
             active && playing ? `Pause ${track.title}` : `Play ${track.title}`
@@ -157,7 +160,7 @@ function PlaylistTrackRow({
         type="button"
         onClick={(event) => {
           event.stopPropagation();
-          onRemove();
+          onRemove(track);
         }}
         aria-label={`Remove ${track.title} from playlist`}
         title="Remove from playlist"
@@ -167,7 +170,7 @@ function PlaylistTrackRow({
       </button>
     </div>
   );
-}
+});
 
 const SPOTIFY_ROW_GRID =
   "grid-cols-[26px_minmax(0,1fr)_70px_26px] md:grid-cols-[26px_minmax(0,2.2fr)_minmax(0,1.4fr)_76px_26px]";
@@ -184,6 +187,18 @@ const spotifyRowAccessors: TrackSortAccessors<SpotifyLikedRowData> = {
   duration: (row) => row.track?.durationMs || row.item.durationMs,
   added: (row) => row.item.addedAt,
 };
+
+function downloadRequest(item: SpotifyLikedTrack): DownloadRequest {
+  return {
+    releaseId: "spotify-liked",
+    trackId: item.id,
+    title: item.title,
+    artist: item.artist,
+    album: item.album,
+    coverUrl: item.coverUrl,
+    spotifyUrl: item.spotifyUrl,
+  };
+}
 
 function SpotifyLikedCover({
   item,
@@ -225,7 +240,7 @@ function SpotifyLikedCover({
   );
 }
 
-function SpotifyLikedRow({
+const SpotifyLikedRow = memo(function SpotifyLikedRow({
   item,
   track,
   index,
@@ -241,10 +256,10 @@ function SpotifyLikedRow({
   index: number;
   active: boolean;
   playing: boolean;
-  onPlay: () => void;
+  onPlay: (track: Track) => void;
   onPause: () => void;
-  onDownload: () => void;
-  onUnlike: () => void;
+  onDownload: (item: SpotifyLikedTrack) => void;
+  onUnlike: (item: SpotifyLikedTrack) => void;
 }) {
   const downloaded = Boolean(track);
 
@@ -253,10 +268,10 @@ function SpotifyLikedRow({
       role="row"
       tabIndex={downloaded ? 0 : -1}
       onDoubleClick={() => {
-        if (downloaded) onPlay();
+        if (track) onPlay(track);
       }}
       onKeyDown={(event) => {
-        if (downloaded && event.key === "Enter") onPlay();
+        if (track && event.key === "Enter") onPlay(track);
       }}
       className={cn(
         "group grid h-[54px] items-center gap-3 rounded-xl px-2.5 outline-none transition-colors focus-visible:bg-white/[0.06]",
@@ -287,7 +302,7 @@ function SpotifyLikedRow({
             onClick={(event) => {
               event.stopPropagation();
               if (active && playing) onPause();
-              else onPlay();
+              else if (track) onPlay(track);
             }}
             aria-label={
               active && playing
@@ -345,7 +360,7 @@ function SpotifyLikedRow({
             type="button"
             onClick={(event) => {
               event.stopPropagation();
-              onDownload();
+              onDownload(item);
             }}
             className="inline-flex h-6 items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.04] px-2 text-[9.5px] font-semibold text-white/55 transition hover:border-accent/30 hover:bg-accent/[0.1] hover:text-accent"
           >
@@ -359,7 +374,7 @@ function SpotifyLikedRow({
         type="button"
         onClick={(event) => {
           event.stopPropagation();
-          onUnlike();
+          onUnlike(item);
         }}
         aria-label={`Remove ${item.title} from Liked Songs`}
         title="Remove from Liked Songs"
@@ -369,7 +384,7 @@ function SpotifyLikedRow({
       </button>
     </div>
   );
-}
+});
 
 export function PlaylistView() {
   const playlists = usePlaylistStore((state) => state.playlists);
@@ -399,6 +414,7 @@ export function PlaylistView() {
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const optionsRef = useRef<HTMLDivElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const playlist = playlists.find((item) => item.id === selectedPlaylistId) ?? null;
   const liked = isLikedPlaylist(playlist);
@@ -447,8 +463,73 @@ export function PlaylistView() {
   const missing = playlist ? playlist.trackPaths.length - resolvedTracks.length : 0;
   const totalMs = displayTracks.reduce((sum, track) => sum + track.durationMs, 0);
   const palette = useCoverPalette(
-    coverUrl(displayTracks[0] ?? null, true),
+    coverPaletteUrl(displayTracks[0] ?? null),
     playlist?.name ?? "playlist",
+  );
+
+  const pausePlayback = useCallback(() => void togglePlay(), [togglePlay]);
+
+  const playFromPlaylist = useCallback(
+    (track: Track) => {
+      setShuffle(false);
+      void playTrack(track, 0, sortedTracks);
+    },
+    [playTrack, setShuffle, sortedTracks],
+  );
+
+  const playFromSpotifyLiked = useCallback(
+    (track: Track) => {
+      setShuffle(false);
+      void playTrack(track, 0, spotifyPlayable);
+    },
+    [playTrack, setShuffle, spotifyPlayable],
+  );
+
+  const downloadLikedTrack = useCallback(async (item: SpotifyLikedTrack) => {
+    await useDownloadStore.getState().start([downloadRequest(item)]);
+    useToastStore.getState().push({
+      kind: "success",
+      title: "Download queued",
+      description: `${item.artist} · ${item.title}`,
+    });
+  }, []);
+
+  const unlikeLikedTrack = useCallback(
+    async (item: SpotifyLikedTrack) => {
+      try {
+        await setSpotifyLiked(item.id, false);
+        if (item.localPath) {
+          await removeTrack(LIKED_PLAYLIST_ID, item.localPath);
+        }
+        useToastStore.getState().push({
+          kind: "info",
+          title: "💔 Removed from Liked Songs",
+          description: item.title,
+        });
+      } catch (error) {
+        useToastStore.getState().push({
+          kind: "error",
+          title: "Could not update Spotify Liked Songs",
+          description: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+    [removeTrack, setSpotifyLiked],
+  );
+
+  const removeFromPlaylist = useCallback(
+    async (track: Track) => {
+      if (!playlist) return;
+      const result = await removeTrack(playlist.id, track.path);
+      if (result?.changed) {
+        useToastStore.getState().push({
+          kind: "success",
+          title: "Removed from playlist",
+          description: track.title,
+        });
+      }
+    },
+    [playlist, removeTrack],
   );
 
   useEffect(() => {
@@ -487,25 +568,6 @@ export function PlaylistView() {
     void playTrack(displayTracks[index], 0, displayTracks);
   };
 
-  const downloadRequest = (item: SpotifyLikedTrack): DownloadRequest => ({
-    releaseId: "spotify-liked",
-    trackId: item.id,
-    title: item.title,
-    artist: item.artist,
-    album: item.album,
-    coverUrl: item.coverUrl,
-    spotifyUrl: item.spotifyUrl,
-  });
-
-  const downloadOne = async (item: SpotifyLikedTrack) => {
-    await useDownloadStore.getState().start([downloadRequest(item)]);
-    useToastStore.getState().push({
-      kind: "success",
-      title: "Download queued",
-      description: `${item.artist} · ${item.title}`,
-    });
-  };
-
   const downloadMissing = async () => {
     const items = (spotifySnapshot?.items ?? []).filter(
       (item) => !item.isDownloaded,
@@ -526,37 +588,6 @@ export function PlaylistView() {
     });
   };
 
-  const unlikeSpotify = async (item: SpotifyLikedTrack) => {
-    try {
-      await setSpotifyLiked(item.id, false);
-      if (item.localPath) {
-        await removeTrack(LIKED_PLAYLIST_ID, item.localPath);
-      }
-      useToastStore.getState().push({
-        kind: "info",
-        title: "💔 Removed from Liked Songs",
-        description: item.title,
-      });
-    } catch (error) {
-      useToastStore.getState().push({
-        kind: "error",
-        title: "Could not update Spotify Liked Songs",
-        description: error instanceof Error ? error.message : String(error),
-      });
-    }
-  };
-
-  const handleRemoveTrack = async (track: Track) => {
-    const result = await removeTrack(playlist.id, track.path);
-    if (result?.changed) {
-      useToastStore.getState().push({
-        kind: "success",
-        title: "Removed from playlist",
-        description: track.title,
-      });
-    }
-  };
-
   const deletePlaylist = async () => {
     setConfirmDelete(false);
     const removed = await removePlaylist(playlist.id);
@@ -572,7 +603,10 @@ export function PlaylistView() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
+      <div
+        ref={scrollRef}
+        className="no-scrollbar min-h-0 flex-1 overflow-y-auto"
+      >
         <header className="relative shrink-0 overflow-hidden px-6 pb-5 pt-7 lg:px-8">
           <div
             className="pointer-events-none absolute inset-0 opacity-70"
@@ -839,31 +873,37 @@ export function PlaylistView() {
                   <span />
                 </div>
 
-                {sortedSpotifyRows.map(({ item, track }, index) => {
-                  const active = Boolean(
-                    track &&
-                      (currentTrack?.id === track.id ||
-                        currentTrack?.path === track.path),
-                  );
-                  return (
-                    <SpotifyLikedRow
-                      key={`${item.id}-${index}`}
-                      item={item}
-                      track={track}
-                      index={index}
-                      active={active}
-                      playing={isPlaying}
-                      onPlay={() => {
-                        if (!track) return;
-                        setShuffle(false);
-                        void playTrack(track, 0, spotifyPlayable);
-                      }}
-                      onPause={() => void togglePlay()}
-                      onDownload={() => void downloadOne(item)}
-                      onUnlike={() => void unlikeSpotify(item)}
-                    />
-                  );
-                })}
+                <VirtualRowList
+                  count={sortedSpotifyRows.length}
+                  rowHeight={PLAYLIST_ROW_HEIGHT}
+                  scrollRef={scrollRef}
+                  layoutKey={`spotify:${playlist.id}:${sortedSpotifyRows.length}:${spotifySort.mode}:${spotifySort.reverse}`}
+                  getKey={(index) => {
+                    const row = sortedSpotifyRows[index];
+                    return `${row.item.id}-${index}`;
+                  }}
+                  renderRow={(index) => {
+                    const { item, track } = sortedSpotifyRows[index];
+                    const active = Boolean(
+                      track &&
+                        (currentTrack?.id === track.id ||
+                          currentTrack?.path === track.path),
+                    );
+                    return (
+                      <SpotifyLikedRow
+                        item={item}
+                        track={track}
+                        index={index}
+                        active={active}
+                        playing={isPlaying}
+                        onPlay={playFromSpotifyLiked}
+                        onPause={pausePlayback}
+                        onDownload={downloadLikedTrack}
+                        onUnlike={unlikeLikedTrack}
+                      />
+                    );
+                  }}
+                />
               </>
             )
           ) : resolvedTracks.length === 0 ? (
@@ -898,25 +938,28 @@ export function PlaylistView() {
                 <span />
               </div>
 
-              {sortedTracks.map((track, index) => {
-                const active = currentTrack?.id === track.id;
-                return (
-                  <PlaylistTrackRow
-                    key={`${track.id}-${index}`}
-                    playlist={playlist}
-                    track={track}
-                    index={index}
-                    active={active}
-                    playing={isPlaying}
-                    onPlay={() => {
-                      setShuffle(false);
-                      void playTrack(track, 0, sortedTracks);
-                    }}
-                    onPause={() => void togglePlay()}
-                    onRemove={() => void handleRemoveTrack(track)}
-                  />
-                );
-              })}
+              <VirtualRowList
+                count={sortedTracks.length}
+                rowHeight={PLAYLIST_ROW_HEIGHT}
+                scrollRef={scrollRef}
+                layoutKey={`local:${playlist.id}:${sortedTracks.length}:${playlistSort.mode}:${playlistSort.reverse}`}
+                getKey={(index) => `${sortedTracks[index].id}-${index}`}
+                renderRow={(index) => {
+                  const track = sortedTracks[index];
+                  return (
+                    <PlaylistTrackRow
+                      playlist={playlist}
+                      track={track}
+                      index={index}
+                      active={currentTrack?.id === track.id}
+                      playing={isPlaying}
+                      onPlay={playFromPlaylist}
+                      onPause={pausePlayback}
+                      onRemove={removeFromPlaylist}
+                    />
+                  );
+                }}
+              />
             </>
           )}
 

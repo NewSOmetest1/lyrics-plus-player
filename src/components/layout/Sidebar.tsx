@@ -35,6 +35,7 @@ import { IconButton } from "@/components/ui/IconButton";
 import { PlaylistCover } from "@/components/playlists/PlaylistCover";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { formatCount } from "@/lib/format";
+import { useRenderProbe } from "@/lib/renderProbe";
 
 interface AlbumGroup {
   key: string;
@@ -81,6 +82,7 @@ export function Sidebar({
   collapsed: boolean;
   width: number;
 }) {
+  useRenderProbe("Sidebar");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [measuredWidth, setMeasuredWidth] = useState(width);
   const [addMenuOpen, setAddMenuOpen] = useState(false);

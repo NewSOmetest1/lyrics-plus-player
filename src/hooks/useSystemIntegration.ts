@@ -9,6 +9,7 @@ const ARTWORK_MAX_SIDE = 512;
 const ARTWORK_MAX_BYTES = 20_000_000;
 const ARTWORK_MAX_DATA_URL = 1_800_000;
 const artworkCache = new Map<string, string>();
+const artworkPending = new Map<string, Promise<string | null>>();
 
 function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -66,23 +67,32 @@ async function artworkDataUrl(track: Track | null): Promise<string | null> {
 
   const cached = artworkCache.get(url);
   if (cached) return cached;
-  try {
-    const response = await fetch(url);
-    if (!response.ok) return url;
-    const blob = await response.blob();
-    // Keep the encoded data URL below Chromium's MediaImage URL limit.
-    if (blob.size === 0 || blob.size > ARTWORK_MAX_BYTES) return url;
-    const data = await blobToArtworkDataUrl(blob);
-    if (data.length > ARTWORK_MAX_DATA_URL) return url;
-    artworkCache.set(url, data);
-    if (artworkCache.size > ARTWORK_CACHE_LIMIT) {
-      const oldest = artworkCache.keys().next().value;
-      if (oldest) artworkCache.delete(oldest);
-    }
-    return data;
-  } catch {
-    return url;
-  }
+
+  const pending = artworkPending.get(url);
+  if (pending) return pending;
+
+  const task = fetch(url)
+    .then(async (response) => {
+      if (!response.ok) return url;
+      const blob = await response.blob();
+      // Keep the encoded data URL below Chromium's MediaImage URL limit.
+      if (blob.size === 0 || blob.size > ARTWORK_MAX_BYTES) return url;
+      const data = await blobToArtworkDataUrl(blob);
+      if (data.length > ARTWORK_MAX_DATA_URL) return url;
+      artworkCache.set(url, data);
+      if (artworkCache.size > ARTWORK_CACHE_LIMIT) {
+        const oldest = artworkCache.keys().next().value;
+        if (oldest) artworkCache.delete(oldest);
+      }
+      return data;
+    })
+    .catch(() => url)
+    .finally(() => {
+      artworkPending.delete(url);
+    });
+
+  artworkPending.set(url, task);
+  return task;
 }
 
 function metadataFor(track: Track, artwork: string | null): MediaMetadata {
@@ -104,7 +114,6 @@ function metadataFor(track: Track, artwork: string | null): MediaMetadata {
 export function useSystemIntegration(): void {
   const track = usePlayerStore((state) => state.currentTrack);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
-  const positionMs = usePlayerStore((state) => state.positionMs);
   const durationMs = usePlayerStore((state) => state.durationMs);
 
   const artworkRef = useRef<string | null>(null);
@@ -255,33 +264,59 @@ export function useSystemIntegration(): void {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [track?.id, isPlaying]);
 
-  // OS progress bar, throttled to once per second or after a seek.
+  // OS progress bar. Position lives outside React state: subscribing to the
+  // 10 Hz store tick here used to re-render the whole App tree every 100 ms.
   useEffect(() => {
     if (!("mediaSession" in navigator) || !track || durationMs <= 0) return;
     const session = navigator.mediaSession;
-    const now = performance.now();
-    const last = positionStateRef.current;
-    if (
-      now - last.at < 1000 &&
-      Math.abs(positionMs - last.position) < 1500
-    ) {
-      return;
-    }
-    const duration = durationMs / 1000;
-    const position = Math.min(Math.max(0, positionMs / 1000), duration);
-    try {
-      session.setPositionState({
-        duration,
-        playbackRate: 1,
-        position,
-      });
-      positionStateRef.current = { at: now, position: positionMs };
-    } catch {
-      // Ignore invalid durations while a stream is still probing metadata.
-    }
 
-    // Catch seeks that happen while the track keeps playing.
-    sendDiscord(artworkRef.current);
+    const update = (force: boolean) => {
+      const state = usePlayerStore.getState();
+      if (!state.currentTrack || state.durationMs <= 0) return;
+
+      const now = performance.now();
+      const last = positionStateRef.current;
+      if (
+        !force &&
+        now - last.at < 1000 &&
+        Math.abs(state.positionMs - last.position) < 1500
+      ) {
+        return;
+      }
+
+      const duration = state.durationMs / 1000;
+      const position = Math.min(
+        Math.max(0, state.positionMs / 1000),
+        duration,
+      );
+      try {
+        session.setPositionState({
+          duration,
+          playbackRate: 1,
+          position,
+        });
+        positionStateRef.current = { at: now, position: state.positionMs };
+      } catch {
+        // Ignore invalid durations while a stream is still probing metadata.
+      }
+
+      // Catch seeks that happen while the track keeps playing.
+      sendDiscord(artworkRef.current);
+    };
+
+    update(true);
+    const interval = window.setInterval(() => update(false), 1000);
+    const unsubscribe = usePlayerStore.subscribe((next, previous) => {
+      if (Math.abs(next.positionMs - previous.positionMs) > 1500) {
+        update(true);
+      }
+    });
+
+    return () => {
+      window.clearInterval(interval);
+      unsubscribe();
+    };
+    // sendDiscord only reads the latest store state; track drives this effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [positionMs, durationMs, track?.id]);
+  }, [durationMs, track?.id]);
 }

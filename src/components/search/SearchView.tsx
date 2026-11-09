@@ -1,8 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Check,
   Disc3,
-  Download,
   Heart,
   Loader2,
   Music2,
@@ -22,10 +20,7 @@ import type {
   Track,
 } from "@/types";import { cn } from "@/lib/cn";
 import { formatCount, formatTime } from "@/lib/format";
-import {
-  findLocalTrackForSpotify,
-  isLossless,
-} from "@/lib/spotifyMatch";
+import { findLocalTrackForSpotify } from "@/lib/spotifyMatch";
 import {
   useTrackSorting,
   type TrackSortAccessors,
@@ -35,12 +30,20 @@ import { useDownloadStore } from "@/store/downloadStore";
 import { useSpotifyCatalogStore } from "@/store/spotifyCatalogStore";
 import { useToastStore } from "@/store/toastStore";
 import { EqualizerBars } from "@/components/ui/EqualizerBars";
+import {
+  TrackStatusAction,
+  type TrackDownloadState,
+} from "@/components/ui/TrackStatusAction";
 import { TrackRow } from "@/components/library/TrackRow";
 import { SortDropdown } from "@/components/library/SortDropdown";
+import { VirtualRowList } from "@/components/library/VirtualRowList";
 import {
   SpotifyAlbumCard,
   SpotifyArtwork,
 } from "@/components/spotify/SpotifyCards";
+
+const LIBRARY_ROW_HEIGHT = 58;
+const SPOTIFY_ROW_HEIGHT = 52;
 
 type SearchMode = "library" | "spotify";
 
@@ -95,7 +98,7 @@ function SpotifyArtistCard({
   );
 }
 
-function SearchTrackRow({
+const SearchTrackRow = memo(function SearchTrackRow({
   track,
   local,
   index,
@@ -111,23 +114,23 @@ function SearchTrackRow({
   index: number;
   active: boolean;
   playing: boolean;
-  pending: boolean;
-  onPlay: () => void;
+  pending?: TrackDownloadState;
+  onPlay: (track: Track) => void;
   onPause: () => void;
-  onDownload: () => void;
+  onDownload: (track: SpotifyCatalogTrack) => void;
 }) {
   return (
     <div
       role="row"
       tabIndex={local ? 0 : -1}
       onDoubleClick={() => {
-        if (local) onPlay();
+        if (local) onPlay(local);
       }}
       onKeyDown={(event) => {
-        if (local && event.key === "Enter") onPlay();
+        if (local && event.key === "Enter") onPlay(local);
       }}
       className={cn(
-        "group grid h-[52px] grid-cols-[26px_minmax(0,1fr)_84px_26px] items-center gap-3 rounded-xl px-2.5 outline-none transition-colors focus-visible:bg-white/[0.06] md:grid-cols-[26px_minmax(0,2.2fr)_minmax(0,1.4fr)_84px_26px]",
+        "group grid h-[52px] grid-cols-[26px_minmax(0,1fr)_112px_26px] items-center gap-3 rounded-xl px-2.5 outline-none transition-colors focus-visible:bg-white/[0.06] md:grid-cols-[26px_minmax(0,2.2fr)_minmax(0,1.4fr)_112px_26px]",
         active ? "bg-white/[0.06]" : "hover:bg-white/[0.04]",
         !local && "opacity-80 hover:opacity-100",
       )}
@@ -154,7 +157,7 @@ function SearchTrackRow({
             onClick={(event) => {
               event.stopPropagation();
               if (active && playing) onPause();
-              else onPlay();
+              else if (local) onPlay(local);
             }}
             aria-label={active && playing ? `Pause ${track.title}` : `Play ${track.title}`}
             className="absolute flex h-6 w-6 items-center justify-center rounded-full text-white opacity-0 transition hover:scale-110 group-hover:opacity-100 focus-visible:opacity-100"
@@ -198,37 +201,12 @@ function SearchTrackRow({
       </span>
 
       <div className="flex justify-end">
-        {local ? (
-          <span
-            className={cn(
-              "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-[0.08em]",
-              isLossless(local.format)
-                ? "border-emerald-400/20 bg-emerald-400/[0.08] text-emerald-300/85"
-                : "border-accent/20 bg-accent/[0.08] text-accent/80",
-            )}
-            title={`${local.format} · ${formatTime(local.durationMs)}`}
-          >
-            <Check className="h-2.5 w-2.5" />
-            {local.format}
-          </span>
-        ) : (
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onDownload();
-            }}
-            disabled={pending}
-            className="inline-flex h-6 items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.04] px-2 text-[9.5px] font-semibold text-white/55 transition hover:border-accent/30 hover:bg-accent/[0.1] hover:text-accent disabled:pointer-events-none disabled:opacity-50"
-          >
-            {pending ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <Download className="h-3 w-3" />
-            )}
-            Download
-          </button>
-        )}
+        <TrackStatusAction
+          downloaded={Boolean(local)}
+          format={local?.format ?? "FLAC"}
+          pending={pending}
+          onDownload={() => onDownload(track)}
+        />
       </div>
 
       <span className="text-right text-[10.5px] tabular-nums text-white/25">
@@ -236,7 +214,7 @@ function SearchTrackRow({
       </span>
     </div>
   );
-}
+});
 
 function SectionHeading({
   icon,
@@ -287,6 +265,7 @@ export function SearchView() {
   const [error, setError] = useState<string | null>(null);
   const [albumPending, setAlbumPending] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const focus = () => {
@@ -350,14 +329,14 @@ export function SearchView() {
     accessors: spotifyTrackAccessors,
   });
 
-  const pendingIds = useMemo(() => {
-    const ids = new Set<string>();
+  const pendingById = useMemo(() => {
+    const pending = new Map<string, TrackDownloadState>();
     for (const task of downloadTasks) {
       if (task.status === "queued" || task.status === "downloading") {
-        ids.add(task.trackId);
+        pending.set(task.trackId, task.status);
       }
     }
-    return ids;
+    return pending;
   }, [downloadTasks]);
 
   const libraryMatches = useMemo(
@@ -371,7 +350,7 @@ export function SearchView() {
     [spotify?.tracks, tracks],
   );
 
-  const queueTracks = async (
+  const queueTracks = useCallback(async (
     items: SpotifyCatalogTrack[],
     releaseId: string,
     label: string,
@@ -392,9 +371,9 @@ export function SearchView() {
       title: `Queued ${items.length} track${items.length === 1 ? "" : "s"}`,
       description: label,
     });
-  };
+  }, []);
 
-  const downloadTrack = (track: SpotifyCatalogTrack) => {
+  const downloadTrack = useCallback((track: SpotifyCatalogTrack) => {
     const match = findLocalTrackForSpotify(tracks, track);
     if (match) {
       useToastStore.getState().push({
@@ -415,7 +394,16 @@ export function SearchView() {
         description: cause instanceof Error ? cause.message : String(cause),
       });
     });
-  };
+  }, [queueTracks, tracks]);
+
+  const playSearchTrack = useCallback(
+    (track: Track) => {
+      void playTrack(track);
+    },
+    [playTrack],
+  );
+
+  const pausePlayback = useCallback(() => void togglePlay(), [togglePlay]);
 
   const downloadAlbum = async (album: SpotifyAlbumSummary) => {
     if (albumPending) return;
@@ -459,7 +447,10 @@ export function SearchView() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
+      <div
+        ref={scrollRef}
+        className="no-scrollbar min-h-0 flex-1 overflow-y-auto"
+      >
         <header className="relative shrink-0 overflow-hidden px-6 pb-5 pt-7 lg:px-8">
           <div
             className="pointer-events-none absolute inset-0 opacity-70"
@@ -591,18 +582,25 @@ export function SearchView() {
                   <span className="w-11 text-right">Time</span>
                   <span className="w-7" />
                 </div>
-                {librarySort.items.map((track, index) => (
-                  <TrackRow
-                    key={track.id}
-                    track={track}
-                    index={index}
-                    active={currentTrack?.id === track.id}
-                    playing={isPlaying}
-                    onPlay={(item) => {
-                      void playTrack(item);
-                    }}
-                  />
-                ))}
+                <VirtualRowList
+                  count={librarySort.items.length}
+                  rowHeight={LIBRARY_ROW_HEIGHT}
+                  scrollRef={scrollRef}
+                  layoutKey={`library:${debounced}:${librarySort.items.length}:${librarySort.mode}:${librarySort.reverse}`}
+                  getKey={(index) => librarySort.items[index].id}
+                  renderRow={(index) => {
+                    const track = librarySort.items[index];
+                    return (
+                      <TrackRow
+                        track={track}
+                        index={index}
+                        active={currentTrack?.id === track.id}
+                        playing={isPlaying}
+                        onPlay={playSearchTrack}
+                      />
+                    );
+                  }}
+                />
               </>
             )
           ) : !debounced.trim() || debounced.trim().length < 2 ? (
@@ -720,38 +718,42 @@ export function SearchView() {
                       onReverseChange={spotifySort.setReverse}
                     />
                   </SectionHeading>
-                  <div className="mb-1 grid h-8 grid-cols-[26px_minmax(0,1fr)_84px_26px] items-center gap-3 border-b border-white/[0.06] px-2.5 text-[9px] font-bold uppercase tracking-[0.18em] text-white/20 md:grid-cols-[26px_minmax(0,2.2fr)_minmax(0,1.4fr)_84px_26px]">
+                  <div className="mb-1 grid h-8 grid-cols-[26px_minmax(0,1fr)_112px_26px] items-center gap-3 border-b border-white/[0.06] px-2.5 text-[9px] font-bold uppercase tracking-[0.18em] text-white/20 md:grid-cols-[26px_minmax(0,2.2fr)_minmax(0,1.4fr)_112px_26px]">
                     <span className="text-center">#</span>
                     <span>Title</span>
                     <span className="hidden md:block">Album</span>
                     <span className="flex justify-end">Status</span>
                     <span className="text-right">Time</span>
                   </div>
-                  {spotifySort.items.map((track, index) => {
-                    const local = libraryMatches.get(track.id) ?? null;
-                    const active = Boolean(
-                      local &&
-                        (currentTrack?.id === local.id ||
-                          currentTrack?.path === local.path),
-                    );
-                    return (
-                      <SearchTrackRow
-                        key={track.id}
-                        track={track}
-                        local={local}
-                        index={index}
-                        active={active}
-                        playing={isPlaying}
-                        pending={pendingIds.has(track.id)}
-                        onPlay={() => {
-                          if (!local) return;
-                          void playTrack(local);
-                        }}
-                        onPause={() => void togglePlay()}
-                        onDownload={() => downloadTrack(track)}
-                      />
-                    );
-                  })}
+                  <VirtualRowList
+                    count={spotifySort.items.length}
+                    rowHeight={SPOTIFY_ROW_HEIGHT}
+                    scrollRef={scrollRef}
+                    layoutKey={`spotify:${debounced}:${spotifySort.items.length}:${spotifySort.mode}:${spotifySort.reverse}`}
+                    getKey={(index) => spotifySort.items[index].id}
+                    renderRow={(index) => {
+                      const track = spotifySort.items[index];
+                      const local = libraryMatches.get(track.id) ?? null;
+                      const active = Boolean(
+                        local &&
+                          (currentTrack?.id === local.id ||
+                            currentTrack?.path === local.path),
+                      );
+                      return (
+                        <SearchTrackRow
+                          track={track}
+                          local={local}
+                          index={index}
+                          active={active}
+                          playing={isPlaying}
+                          pending={pendingById.get(track.id)}
+                          onPlay={playSearchTrack}
+                          onPause={pausePlayback}
+                          onDownload={downloadTrack}
+                        />
+                      );
+                    }}
+                  />
                 </section>
               )}
             </div>

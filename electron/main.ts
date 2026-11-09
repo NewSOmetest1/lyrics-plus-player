@@ -34,7 +34,13 @@ import {
   type PlaylistCreateInput,
   type PlaylistUpdateInput,
 } from "./playlists";
-import { defaultMusicDir, scanLibrary } from "./scanner";
+import {
+  coverFileNameFromUrl,
+  defaultMusicDir,
+  ensureCoverVariantsFromFile,
+  isCoverVariantFileName,
+  scanLibrary,
+} from "./scanner";
 import { StatsStore } from "./stats";
 import { LibraryStore } from "./store";
 import { TrackDelayStore } from "./trackDelays";
@@ -55,6 +61,15 @@ import type {
 } from "./types";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Opt-in startup timings. Disabled by default; zero behavioral impact.
+const PERF_ENABLED = process.env.LYRICS_PERF === "1";
+const PERF_STARTED_AT = performance.now();
+
+function perfMark(name: string): void {
+  if (!PERF_ENABLED) return;
+  console.log(`[perf] ${name} ${(performance.now() - PERF_STARTED_AT).toFixed(1)}ms`);
+}
 
 if (process.platform === "linux" && process.env.WAYLAND_DISPLAY) {
   app.commandLine.appendSwitch("enable-features", "UseOzonePlatform,WaylandWindowDecorations");
@@ -100,6 +115,70 @@ async function backfillFileMetadata(): Promise<void> {
   };
   await Promise.all(Array.from({ length: Math.min(16, missing.length) }, worker));
   store.save();
+}
+
+const COVER_MIGRATION_IDLE_MS = 200;
+
+/**
+ * Rebuild card/display variants for covers written before content-addressed
+ * names existed. Runs long after the window is visible and yields between
+ * covers so media:// responses and playback never queue behind image work.
+ * Generated files are content-addressed, so rerunning after an interrupted
+ * pass is a no-op. Originals are never deleted.
+ */
+async function migrateCoverVariants(): Promise<void> {
+  const pending = store.getTracks().filter((track) => {
+    const card = coverFileNameFromUrl(track.coverPath);
+    const display = coverFileNameFromUrl(track.coverFullPath);
+    return (
+      (card !== null && !isCoverVariantFileName(card)) ||
+      (display !== null && !isCoverVariantFileName(display))
+    );
+  });
+  perfMark(`cover-migration-start ${pending.length}`);
+  if (pending.length === 0) return;
+
+  let changed = 0;
+  for (const track of pending) {
+    const cardFile = coverFileNameFromUrl(track.coverPath);
+    if (!cardFile) continue;
+    // Prefer an existing palette source; otherwise the current (original)
+    // cover keeps the exact accent colors the old full-size sample produced.
+    const paletteSource = track.coverPalettePath ?? track.coverPath;
+    const variants = ensureCoverVariantsFromFile(coversDir, cardFile);
+    if (!variants) continue;
+
+    const displayFile = coverFileNameFromUrl(track.coverFullPath);
+    const displayVariants =
+      displayFile && displayFile !== cardFile
+        ? ensureCoverVariantsFromFile(coversDir, displayFile)
+        : null;
+
+    store.setTrackCoverPaths(
+      track.id,
+      variants.card,
+      displayVariants?.display ?? variants.display,
+      paletteSource,
+    );
+    changed += 1;
+
+    // Checkpoint so an interrupted migration keeps finished work. Rare enough
+    // (every 100 covers) not to matter for playback.
+    if (changed % 100 === 0) store.save();
+
+    // A single large cover decode can take hundreds of milliseconds. Give the
+    // event loop a long gap after every file so audio and IPC stay responsive.
+    await new Promise<void>((resolve) =>
+      setTimeout(resolve, COVER_MIGRATION_IDLE_MS),
+    );
+  }
+
+  if (changed > 0) {
+    store.save();
+    // Renderer keeps the old (still valid) URLs until the next library
+    // refresh so migration cannot flash artwork mid-playback.
+  }
+  perfMark(`cover-migration-done ${changed}`);
 }
 
 function readStatsPayload(payload: unknown): {
@@ -166,7 +245,10 @@ function createWindow(): BrowserWindow {
     },
   });
 
-  window.once("ready-to-show", () => window.show());
+  window.once("ready-to-show", () => {
+    perfMark("ready-to-show");
+    window.show();
+  });
   window.on("maximize", () => window.webContents.send("window:maximized", true));
   window.on("unmaximize", () => window.webContents.send("window:maximized", false));
   window.on("app-command", (_event, command) => {
@@ -779,10 +861,13 @@ app.whenReady().then(async () => {
       });
     },
   });
+  perfMark("stores-ready");
   await backfillFileMetadata();
+  perfMark("backfill-done");
 
   registerMediaProtocol(coversDir);
   registerIpc();
+  perfMark("ipc-ready");
   initDiscordRpc(
     process.env.LYRICS_PLUS_DISCORD_CLIENT_ID ||
       store.getSetting("discord_client_id") ||
@@ -790,6 +875,11 @@ app.whenReady().then(async () => {
   );
 
   mainWindow = createWindow();
+  perfMark("window-created");
+  mainWindow.once("ready-to-show", () => {
+    // Let the first frame and any immediate playback settle before cover work.
+    setTimeout(() => void migrateCoverVariants(), 8000);
+  });
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow();
@@ -802,6 +892,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   stopResize();
+  store?.flushPendingSettings();
   downloads?.dispose();
   releases?.dispose();
   spotifyCatalog?.dispose();

@@ -1,51 +1,56 @@
-import { useMemo } from "react";
-import { motion } from "framer-motion";
+import { memo, useMemo, type RefObject } from "react";
 import { ListMusic, Play, Plus } from "lucide-react";
 
 import type { Playlist, Track } from "@/types";
 import { isLikedPlaylist } from "@/types";
+import { cn } from "@/lib/cn";
 import { formatCount } from "@/lib/format";
 import { usePlayerStore } from "@/store/playerStore";
 import { usePlaylistStore } from "@/store/playlistStore";
 import { usePlaylistDialogStore } from "@/store/playlistDialogStore";
 import { PlaylistCover } from "@/components/playlists/PlaylistCover";
+import { VirtualMediaGrid } from "@/components/library/VirtualMediaGrid";
 
-function PlaylistCard({
+const PlaylistCard = memo(function PlaylistCard({
   playlist,
   tracks,
   index,
+  animateIn = true,
 }: {
   playlist: Playlist;
   tracks: Track[];
   index: number;
+  animateIn?: boolean;
 }) {
-  const openPlaylist = usePlayerStore((state) => state.openPlaylist);
-  const playTrack = usePlayerStore((state) => state.playTrack);
-  const setShuffle = usePlayerStore((state) => state.setShuffle);
-
   const playPlaylist = () => {
     if (tracks.length === 0) return;
+    const { playTrack, setShuffle } = usePlayerStore.getState();
     setShuffle(false);
     void playTrack(tracks[0], 0, tracks);
   };
 
   return (
-    <motion.div
+    <div
       role="button"
       tabIndex={0}
       aria-label={`Open ${playlist.name} playlist`}
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.28, delay: Math.min(index * 0.012, 0.2) }}
-      onClick={() => openPlaylist(playlist.id)}
+      className={cn(
+        animateIn && "media-card-enter",
+        "library-media-card lucid-glass-panel group relative min-w-0 cursor-pointer rounded-2xl p-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/60",
+      )}
+      style={
+        animateIn
+          ? { animationDelay: `${Math.min(index * 0.012, 0.2)}s` }
+          : undefined
+      }
+      onClick={() => usePlayerStore.getState().openPlaylist(playlist.id)}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          openPlaylist(playlist.id);
+          usePlayerStore.getState().openPlaylist(playlist.id);
         }
       }}
-      className="library-media-card lucid-glass-panel group relative min-w-0 cursor-pointer rounded-2xl p-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
     >
       <div className="relative">
         <PlaylistCover
@@ -86,11 +91,17 @@ function PlaylistCard({
           </>
         )}
       </p>
-    </motion.div>
+    </div>
   );
-}
+});
 
-export function PlaylistGrid({ query = "" }: { query?: string }) {
+export function PlaylistGrid({
+  query = "",
+  scrollRef,
+}: {
+  query?: string;
+  scrollRef: RefObject<HTMLDivElement>;
+}) {
   const playlists = usePlaylistStore((state) => state.playlists);
   const tracks = usePlayerStore((state) => state.tracks);
   const openCreate = usePlaylistDialogStore((state) => state.openCreate);
@@ -154,24 +165,22 @@ export function PlaylistGrid({ query = "" }: { query?: string }) {
           )}
         </div>
       ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-            gap: 20,
-          }}
-        >
-          {filtered.map((playlist, index) => (
+        <VirtualMediaGrid
+          items={filtered}
+          itemKey={(playlist) => String(playlist.id)}
+          scrollRef={scrollRef}
+          layoutKey={query}
+          renderItem={(playlist, index, animateIn) => (
             <PlaylistCard
-              key={playlist.id}
               playlist={playlist}
               tracks={playlist.trackPaths
                 .map((trackPath) => byPath.get(trackPath))
                 .filter((track): track is Track => Boolean(track))}
               index={index}
+              animateIn={animateIn}
             />
-          ))}
-        </div>
+          )}
+        />
       )}
     </div>
   );

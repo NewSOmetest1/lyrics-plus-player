@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
-  Check,
   Clock3,
   Disc3,
   Download,
@@ -31,10 +30,14 @@ import { useSpotifyLikedStore } from "@/store/spotifyLikedStore";
 import { useToastStore } from "@/store/toastStore";
 import { ArtistLinks } from "@/components/artists/ArtistLinks";
 import { EqualizerBars } from "@/components/ui/EqualizerBars";
+import {
+  TrackStatusAction,
+  type TrackDownloadState,
+} from "@/components/ui/TrackStatusAction";
 import { SpotifyArtwork } from "@/components/spotify/SpotifyCards";
 
 const TRACK_GRID =
-  "grid-cols-[24px_minmax(0,1fr)_88px_28px] md:grid-cols-[28px_minmax(0,2fr)_132px_28px_52px]";
+  "grid-cols-[24px_minmax(0,1fr)_112px_28px] md:grid-cols-[28px_minmax(0,2fr)_132px_28px_52px]";
 
 function downloadRequest(
   track: SpotifyCatalogTrack,
@@ -217,14 +220,14 @@ export function AlbumDetailView() {
     [rows],
   );
 
-  const pendingIds = useMemo(() => {
-    const ids = new Set<string>();
+  const pendingById = useMemo(() => {
+    const pending = new Map<string, TrackDownloadState>();
     for (const task of downloadTasks) {
       if (task.status === "queued" || task.status === "downloading") {
-        ids.add(task.trackId);
+        pending.set(task.trackId, task.status);
       }
     }
-    return ids;
+    return pending;
   }, [downloadTasks]);
 
   const likedIds = useMemo(
@@ -506,7 +509,7 @@ export function AlbumDetailView() {
                       (currentTrack?.id === local.id ||
                         currentTrack?.path === local.path),
                   );
-                  const pending = pendingIds.has(track.id);
+                  const pending = pendingById.get(track.id);
                   const liked = isTrackLiked(track.id);
                   const heartBusy = Boolean(heartPending[track.id]);
 
@@ -572,42 +575,17 @@ export function AlbumDetailView() {
                       </div>
 
                       <div className="flex justify-end md:justify-start">
-                        {local ? (
-                          <span
-                            className="inline-flex items-center gap-1 rounded-full border border-emerald-400/20 bg-emerald-400/[0.08] px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-[0.08em] text-emerald-300/85"
-                            title={`✓ ${local.format} · ${formatTime(local.durationMs)}`}
-                          >
-                            <Check className="h-2.5 w-2.5 shrink-0" />
-                            <span className="hidden md:inline">
-                              {local.format} / In Library
-                            </span>
-                            <span className="md:hidden">{local.format}</span>
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void queueDownload(
-                                [track],
-                                `${track.artist} · ${track.title}`,
-                              );
-                            }}
-                            disabled={pending}
-                            aria-label={`Download ${track.title} in FLAC`}
-                            title={`Download ${track.title} in FLAC`}
-                            className="inline-flex h-6 items-center gap-1 rounded-full border border-accent/25 bg-accent/10 px-2 text-[8.5px] font-bold uppercase tracking-[0.06em] text-accent/90 transition hover:bg-accent/20 hover:text-accent disabled:pointer-events-none disabled:opacity-50"
-                          >
-                            {pending ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Download className="h-3 w-3" />
-                            )}
-                            <span className="hidden sm:inline">
-                              {pending ? "Queued" : "Download FLAC"}
-                            </span>
-                          </button>
-                        )}
+                        <TrackStatusAction
+                          downloaded={Boolean(local)}
+                          format={local?.format ?? "FLAC"}
+                          pending={pending}
+                          onDownload={() =>
+                            void queueDownload(
+                              [track],
+                              `${track.artist} · ${track.title}`,
+                            )
+                          }
+                        />
                       </div>
 
                       <div className="flex justify-center">

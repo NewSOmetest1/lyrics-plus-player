@@ -20,6 +20,12 @@ export interface TrackRecord {
   modifiedAt: number;
   coverPath: string | null;
   coverFullPath: string | null;
+  /**
+   * Optional artwork URL used for palette extraction only. Old libraries do
+   * not have it; it lets migrated covers keep their exact pre-migration
+   * accent colors without decoding a full-size file repeatedly.
+   */
+  coverPalettePath?: string | null;
   hasEmbeddedLyrics: boolean;
   addedAt: number;
 }

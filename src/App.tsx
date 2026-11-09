@@ -21,6 +21,7 @@ import {
   useTrackDelayStore,
 } from "@/store/trackDelayStore";
 import { useSystemIntegration } from "@/hooks/useSystemIntegration";
+import { useRenderProbe } from "@/lib/renderProbe";
 import { cn } from "@/lib/cn";
 import { AmbientBackground } from "@/components/background/AmbientBackground";
 import { TitleBar, WindowResizeHandles } from "@/components/layout/TitleBar";
@@ -43,6 +44,17 @@ import { QueuePanel } from "@/components/player/QueuePanel";
 import { Toaster } from "@/components/ui/Toaster";
 
 const EASE = [0.2, 0, 0, 1] as const;
+
+/**
+ * Keep the OS media-session bridge out of App's render path. The hook reacts to
+ * playback changes, so calling it directly inside App would re-render the whole
+ * tree on every track/play-state update.
+ */
+function SystemIntegrationBridge() {
+  useRenderProbe("Bridge");
+  useSystemIntegration();
+  return null;
+}
 
 const SIDEBAR_WIDTH_KEY = "lyricsplus.sidebarWidth";
 const RIGHT_PANEL_WIDTH_KEY = "lyricsplus.rightPanelWidth";
@@ -270,6 +282,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 export default function App() {
+  useRenderProbe("App");
   const view = usePlayerStore((state) => state.view);
   const selectedPlaylistId = usePlayerStore((state) => state.selectedPlaylistId);
   const selectedArtistName = usePlayerStore((state) => state.selectedArtistName);
@@ -306,7 +319,6 @@ export default function App() {
     at: number;
   }>({ direction: "back", source: "ipc", at: Number.NEGATIVE_INFINITY });
   const { goBack, goForward } = useNavigation();
-  useSystemIntegration();
 
   const effectiveSidebarWidth = isLeftCollapsed
     ? SIDEBAR_LIMITS.collapsed
@@ -614,6 +626,7 @@ export default function App() {
   return (
     <div className="relative flex h-screen w-screen flex-col overflow-hidden text-white">
       <AmbientBackground />
+      <SystemIntegrationBridge />
       <TitleBar />
 
       <div className="lucid-app-content relative z-10 flex min-h-0 flex-1 gap-2 px-3 pb-2">

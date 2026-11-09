@@ -20,6 +20,7 @@ import { useLucidSettingsStore } from "@/store/lucidSettingsStore";
 import { cn } from "@/lib/cn";
 import { formatQuality, formatTime } from "@/lib/format";
 import { CoverArt } from "@/components/ui/CoverArt";
+import { useRenderProbe } from "@/lib/renderProbe";
 import { ArtistLinks } from "@/components/artists/ArtistLinks";
 import { IconButton } from "@/components/ui/IconButton";
 import { EqualizerBars } from "@/components/ui/EqualizerBars";
@@ -64,6 +65,32 @@ function TransportButton({
   );
 }
 
+/**
+ * Progress-only subscriber. Keeping the 10 Hz position read inside this leaf
+ * stops the whole PlayerBar (artwork, transport buttons, animations) from
+ * re-rendering every 100 ms.
+ */
+function PlayerProgress({
+  durationMs,
+  compact,
+  onSeek,
+}: {
+  durationMs: number;
+  compact: boolean;
+  onSeek: (positionMs: number) => void;
+}) {
+  useRenderProbe("Progress");
+  const positionMs = usePlayerStore((state) => state.positionMs);
+  return (
+    <ProgressBar
+      positionMs={positionMs}
+      durationMs={durationMs}
+      onSeek={onSeek}
+      compact={compact}
+    />
+  );
+}
+
 export function PlayerBar({
   rightPanelOpen,
   onToggleRightPanel,
@@ -71,10 +98,10 @@ export function PlayerBar({
   rightPanelOpen: boolean;
   onToggleRightPanel: () => void;
 }) {
+  useRenderProbe("PlayerBar");
   const track = usePlayerStore((state) => state.currentTrack);
   const tracks = usePlayerStore((state) => state.tracks);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
-  const positionMs = usePlayerStore((state) => state.positionMs);
   const durationMs = usePlayerStore((state) => state.durationMs);
   const repeat = usePlayerStore((state) => state.repeat);
   const shuffle = usePlayerStore((state) => state.shuffle);
@@ -314,8 +341,7 @@ export function PlayerBar({
           </div>
 
           <div className="w-[clamp(280px,36vw,560px)]">
-            <ProgressBar
-              positionMs={positionMs}
+            <PlayerProgress
               durationMs={durationMs}
               onSeek={seek}
               compact={compactPlayer}

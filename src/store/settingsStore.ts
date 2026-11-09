@@ -139,12 +139,39 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-async function persist(key: string, value: string): Promise<void> {
-  try {
-    await backend.setSetting(key, value);
-  } catch {
-    // Browser preview has no persistence layer.
+const PERSIST_DELAY_MS = 250;
+const pendingSettings = new Map<string, string>();
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Slider inputs fire on every step. Coalesce IPC writes instead of one
+ * roundtrip per step; the main process already debounces the disk write.
+ */
+function flushPendingSettings(): void {
+  if (persistTimer !== null) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
   }
+  if (pendingSettings.size === 0) return;
+  const entries = Array.from(pendingSettings);
+  pendingSettings.clear();
+  for (const [key, value] of entries) {
+    void backend.setSetting(key, value).catch(() => {
+      // Browser preview has no persistence layer.
+    });
+  }
+}
+
+function persist(key: string, value: string): Promise<void> {
+  pendingSettings.set(key, value);
+  if (persistTimer !== null) clearTimeout(persistTimer);
+  persistTimer = setTimeout(flushPendingSettings, PERSIST_DELAY_MS);
+  return Promise.resolve();
+}
+
+if (typeof window !== "undefined") {
+  // Last value must not be lost when the window closes before the timer fires.
+  window.addEventListener("pagehide", flushPendingSettings);
 }
 
 function parseNumber(value: string | null, fallback: number): number {

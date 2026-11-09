@@ -1,11 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
-  Check,
   Clock3,
   Disc3,
-  Download,
   Headphones,
   Loader2,
   Music2,
@@ -26,10 +24,7 @@ import type {
 } from "@/types";
 import { cn } from "@/lib/cn";
 import { formatCount, formatTime, formatTimeLong } from "@/lib/format";
-import {
-  findLocalTrackForSpotify,
-  isLossless,
-} from "@/lib/spotifyMatch";
+import { findLocalTrackForSpotify } from "@/lib/spotifyMatch";
 import { useArtistGroups } from "@/hooks/useArtistGroups";
 import { useCoverPalette } from "@/hooks/useCoverPalette";
 import { useNavigation } from "@/hooks/useNavigation";
@@ -40,11 +35,19 @@ import { useDownloadStore } from "@/store/downloadStore";
 import { useToastStore } from "@/store/toastStore";
 import { CoverArt } from "@/components/ui/CoverArt";
 import { EqualizerBars } from "@/components/ui/EqualizerBars";
+import {
+  TrackStatusAction,
+  type TrackDownloadState,
+} from "@/components/ui/TrackStatusAction";
 import { TrackRow } from "@/components/library/TrackRow";
+import { VirtualRowList } from "@/components/library/VirtualRowList";
 import {
   SpotifyAlbumCard,
   SpotifyArtwork,
 } from "@/components/spotify/SpotifyCards";
+
+const LOCAL_ROW_HEIGHT = 58;
+const POPULAR_ROW_HEIGHT = 52;
 
 function downloadRequest(track: SpotifyCatalogTrack): DownloadRequest {
   return {
@@ -78,7 +81,7 @@ function SectionHeading({
   );
 }
 
-function PopularTrackRow({
+const PopularTrackRow = memo(function PopularTrackRow({
   track,
   local,
   index,
@@ -94,23 +97,23 @@ function PopularTrackRow({
   index: number;
   active: boolean;
   playing: boolean;
-  pending: boolean;
-  onPlay: () => void;
+  pending?: TrackDownloadState;
+  onPlay: (track: Track) => void;
   onPause: () => void;
-  onDownload: () => void;
+  onDownload: (track: SpotifyCatalogTrack) => void;
 }) {
   return (
     <div
       role="row"
       tabIndex={local ? 0 : -1}
       onDoubleClick={() => {
-        if (local) onPlay();
+        if (local) onPlay(local);
       }}
       onKeyDown={(event) => {
-        if (local && event.key === "Enter") onPlay();
+        if (local && event.key === "Enter") onPlay(local);
       }}
       className={cn(
-        "group grid h-[52px] grid-cols-[26px_minmax(0,1fr)_92px_28px] items-center gap-3 rounded-xl px-2.5 outline-none transition-colors focus-visible:bg-white/[0.06] md:grid-cols-[26px_minmax(0,2.2fr)_minmax(0,1.4fr)_104px_28px]",
+        "group grid h-[52px] grid-cols-[26px_minmax(0,1fr)_112px_28px] items-center gap-3 rounded-xl px-2.5 outline-none transition-colors focus-visible:bg-white/[0.06] md:grid-cols-[26px_minmax(0,2.2fr)_minmax(0,1.4fr)_112px_28px]",
         active ? "bg-white/[0.06]" : "hover:bg-white/[0.04]",
         !local && "opacity-80 hover:opacity-100",
       )}
@@ -137,7 +140,7 @@ function PopularTrackRow({
             onClick={(event) => {
               event.stopPropagation();
               if (active && playing) onPause();
-              else onPlay();
+              else if (local) onPlay(local);
             }}
             aria-label={
               active && playing ? `Pause ${track.title}` : `Play ${track.title}`
@@ -183,36 +186,12 @@ function PopularTrackRow({
       </span>
 
       <div className="flex justify-end">
-        {local ? (
-          <span
-            className={cn(
-              "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-[0.08em]",
-              isLossless(local.format)
-                ? "border-emerald-400/20 bg-emerald-400/[0.08] text-emerald-300/85"
-                : "border-accent/20 bg-accent/[0.08] text-accent/80",
-            )}
-          >
-            <Check className="h-2.5 w-2.5" />
-            In Library / {local.format}
-          </span>
-        ) : (
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onDownload();
-            }}
-            disabled={pending}
-            className="inline-flex h-6 items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.04] px-2 text-[9.5px] font-semibold text-white/55 transition hover:border-accent/30 hover:bg-accent/[0.1] hover:text-accent disabled:pointer-events-none disabled:opacity-50"
-          >
-            {pending ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <Download className="h-3 w-3" />
-            )}
-            Download FLAC
-          </button>
-        )}
+        <TrackStatusAction
+          downloaded={Boolean(local)}
+          format={local?.format ?? "FLAC"}
+          pending={pending}
+          onDownload={() => onDownload(track)}
+        />
       </div>
 
       <span className="text-right text-[10.5px] tabular-nums text-white/25">
@@ -220,7 +199,7 @@ function PopularTrackRow({
       </span>
     </div>
   );
-}
+});
 
 export function ArtistDetailView() {
   const tracks = usePlayerStore((state) => state.tracks);
@@ -279,6 +258,7 @@ export function ArtistDetailView() {
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [albumPending, setAlbumPending] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!artistName) return;
@@ -332,22 +312,30 @@ export function ArtistDetailView() {
   const popularTracks = catalog?.topTracks ?? [];
   const albums = catalog?.albums ?? [];
 
+  const popularMatches = useMemo(() => {
+    const matches = new Map<string, Track | null>();
+    for (const track of popularTracks) {
+      matches.set(track.id, findLocalTrackForSpotify(tracks, track));
+    }
+    return matches;
+  }, [popularTracks, tracks]);
+
   const popularLocal = useMemo(
     () =>
       popularTracks
-        .map((track) => findLocalTrackForSpotify(tracks, track))
+        .map((track) => popularMatches.get(track.id) ?? null)
         .filter((track): track is Track => Boolean(track)),
-    [popularTracks, tracks],
+    [popularMatches, popularTracks],
   );
 
-  const pendingIds = useMemo(() => {
-    const ids = new Set<string>();
+  const pendingById = useMemo(() => {
+    const pending = new Map<string, TrackDownloadState>();
     for (const task of downloadTasks) {
       if (task.status === "queued" || task.status === "downloading") {
-        ids.add(task.trackId);
+        pending.set(task.trackId, task.status);
       }
     }
-    return ids;
+    return pending;
   }, [downloadTasks]);
 
   const followed = useMemo(
@@ -382,7 +370,7 @@ export function ArtistDetailView() {
     navigate({ type: "search", query: artistName });
   };
 
-  const queueTracks = async (
+  const queueTracks = useCallback(async (
     items: SpotifyCatalogTrack[],
     releaseId: string,
     label: string,
@@ -403,9 +391,9 @@ export function ArtistDetailView() {
       title: `Queued ${items.length} track${items.length === 1 ? "" : "s"}`,
       description: label,
     });
-  };
+  }, []);
 
-  const downloadTrack = (track: SpotifyCatalogTrack) => {
+  const downloadTrack = useCallback((track: SpotifyCatalogTrack) => {
     const local = findLocalTrackForSpotify(tracks, track);
     if (local) {
       useToastStore.getState().push({
@@ -426,7 +414,25 @@ export function ArtistDetailView() {
         description: cause instanceof Error ? cause.message : String(cause),
       });
     });
-  };
+  }, [queueTracks, tracks]);
+
+  const pausePlayback = useCallback(() => void togglePlay(), [togglePlay]);
+
+  const playLocalTrack = useCallback(
+    (track: Track) => {
+      setShuffle(false);
+      void playTrack(track, 0, localTracks);
+    },
+    [localTracks, playTrack, setShuffle],
+  );
+
+  const playPopularTrack = useCallback(
+    (track: Track) => {
+      setShuffle(false);
+      void playTrack(track, 0, popularLocal);
+    },
+    [playTrack, popularLocal, setShuffle],
+  );
 
   const downloadAlbum = async (album: SpotifyAlbumSummary) => {
     if (albumPending) return;
@@ -474,7 +480,10 @@ export function ArtistDetailView() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
+      <div
+        ref={scrollRef}
+        className="no-scrollbar min-h-0 flex-1 overflow-y-auto"
+      >
         <header className="relative shrink-0 overflow-hidden px-6 pb-6 pt-5 lg:px-8">
           <div
             className="pointer-events-none absolute inset-0 opacity-80"
@@ -646,19 +655,25 @@ export function ArtistDetailView() {
                 <span className="w-7" />
               </div>
               <div className="pb-2">
-                {localTracks.map((track, index) => (
-                  <TrackRow
-                    key={track.id}
-                    track={track}
-                    index={index}
-                    active={currentTrack?.id === track.id}
-                    playing={isPlaying}
-                    onPlay={(item) => {
-                      setShuffle(false);
-                      void playTrack(item, 0, localTracks);
-                    }}
-                  />
-                ))}
+                <VirtualRowList
+                  count={localTracks.length}
+                  rowHeight={LOCAL_ROW_HEIGHT}
+                  scrollRef={scrollRef}
+                  layoutKey={`${artistName}:local:${localTracks.length}:${catalog ? "catalog" : "local"}:${error ? 1 : 0}`}
+                  getKey={(index) => localTracks[index].id}
+                  renderRow={(index) => {
+                    const track = localTracks[index];
+                    return (
+                      <TrackRow
+                        track={track}
+                        index={index}
+                        active={currentTrack?.id === track.id}
+                        playing={isPlaying}
+                        onPlay={playLocalTrack}
+                      />
+                    );
+                  }}
+                />
               </div>
             </section>
           )}
@@ -670,39 +685,42 @@ export function ArtistDetailView() {
                 title="Popular on Spotify"
                 meta={`Top ${popularTracks.length}`}
               />
-              <div className="mb-1 grid h-8 grid-cols-[26px_minmax(0,1fr)_92px_28px] items-center gap-3 border-b border-white/[0.06] px-2.5 text-[9px] font-bold uppercase tracking-[0.18em] text-white/20 md:grid-cols-[26px_minmax(0,2.2fr)_minmax(0,1.4fr)_104px_28px]">
+              <div className="mb-1 grid h-8 grid-cols-[26px_minmax(0,1fr)_112px_28px] items-center gap-3 border-b border-white/[0.06] px-2.5 text-[9px] font-bold uppercase tracking-[0.18em] text-white/20 md:grid-cols-[26px_minmax(0,2.2fr)_minmax(0,1.4fr)_112px_28px]">
                 <span className="text-center">#</span>
                 <span>Title</span>
                 <span className="hidden md:block">Album</span>
                 <span className="flex justify-end">Status</span>
                 <span className="text-right">Time</span>
               </div>
-              {popularTracks.map((track, index) => {
-                const local = findLocalTrackForSpotify(tracks, track);
-                const active = Boolean(
-                  local &&
-                    (currentTrack?.id === local.id ||
-                      currentTrack?.path === local.path),
-                );
-                return (
-                  <PopularTrackRow
-                    key={track.id}
-                    track={track}
-                    local={local}
-                    index={index}
-                    active={active}
-                    playing={isPlaying}
-                    pending={pendingIds.has(track.id)}
-                    onPlay={() => {
-                      if (!local) return;
-                      setShuffle(false);
-                      void playTrack(local, 0, popularLocal);
-                    }}
-                    onPause={() => void togglePlay()}
-                    onDownload={() => downloadTrack(track)}
-                  />
-                );
-              })}
+              <VirtualRowList
+                count={popularTracks.length}
+                rowHeight={POPULAR_ROW_HEIGHT}
+                scrollRef={scrollRef}
+                layoutKey={`${artistName}:popular:${localTracks.length}:${popularTracks.length}:${catalog ? "catalog" : "local"}:${error ? 1 : 0}`}
+                getKey={(index) => popularTracks[index].id}
+                renderRow={(index) => {
+                  const track = popularTracks[index];
+                  const local = popularMatches.get(track.id) ?? null;
+                  const active = Boolean(
+                    local &&
+                      (currentTrack?.id === local.id ||
+                        currentTrack?.path === local.path),
+                  );
+                  return (
+                    <PopularTrackRow
+                      track={track}
+                      local={local}
+                      index={index}
+                      active={active}
+                      playing={isPlaying}
+                      pending={pendingById.get(track.id)}
+                      onPlay={playPopularTrack}
+                      onPause={pausePlayback}
+                      onDownload={downloadTrack}
+                    />
+                  );
+                }}
+              />
             </section>
           )}
 

@@ -719,6 +719,22 @@ html[data-lucid-player-floating="true"] .lucid-queue-panel {
   border-radius: clamp(6px, var(--lucid-player-cover-radius, 10px), 8px) !important;
 }
 
+/* Entry animation for the first mounted card window. Scroll-in cards skip it. */
+.media-card-enter {
+  animation: media-card-enter 0.28s cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+@keyframes media-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* Album/playlist media cards keep the compact glass look. */
 html .library-media-card.lucid-glass-panel {
   background: rgba(255, 255, 255, 0.035) !important;
