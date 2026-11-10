@@ -37,6 +37,8 @@ export type {
   SpotifyLikedSnapshot,
   SpotifyLikedSource,
   SpotifyLikedTrack,
+  SpotifyLikedTrackInput,
+  SpotifyProfile,
   SpotifyArtistSummary,
   SpotifyAlbumSummary,
   SpotifyCatalogTrack,

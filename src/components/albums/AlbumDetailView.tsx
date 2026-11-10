@@ -19,6 +19,7 @@ import type {
   SpotifyCatalogTrack,
   Track,
 } from "@/types";
+import { LIKED_PLAYLIST_ID } from "@/types";
 import { cn } from "@/lib/cn";
 import { formatCount, formatTime } from "@/lib/format";
 import { findLocalTrackForSpotify } from "@/lib/spotifyMatch";
@@ -27,6 +28,7 @@ import { useNavigation } from "@/hooks/useNavigation";
 import { usePlayerStore } from "@/store/playerStore";
 import { useSpotifyCatalogStore } from "@/store/spotifyCatalogStore";
 import { useDownloadStore } from "@/store/downloadStore";
+import { usePlaylistStore } from "@/store/playlistStore";
 import { useSpotifyLikedStore } from "@/store/spotifyLikedStore";
 import { useToastStore } from "@/store/toastStore";
 import { ArtistLinks } from "@/components/artists/ArtistLinks";
@@ -316,12 +318,41 @@ export function AlbumDetailView() {
   const isTrackLiked = (trackId: string) =>
     likedOverrides[trackId] ?? likedIds.has(trackId);
 
-  const toggleLiked = async (track: SpotifyCatalogTrack) => {
+  const toggleLiked = async (
+    track: SpotifyCatalogTrack,
+    local: Track | null,
+  ) => {
     if (heartPending[track.id]) return;
     const next = !isTrackLiked(track.id);
     setHeartPending((current) => ({ ...current, [track.id]: true }));
+
+    // Keep playlists.json in step immediately, including when Spotify is
+    // rate limited and the remote request falls back or fails.
+    if (local) {
+      try {
+        if (next) {
+          await usePlaylistStore
+            .getState()
+            .addTrack(LIKED_PLAYLIST_ID, local.path);
+        } else {
+          await usePlaylistStore
+            .getState()
+            .removeTrack(LIKED_PLAYLIST_ID, local.path);
+        }
+      } catch (cause) {
+        console.error("[album] local liked playlist update failed", cause);
+      }
+    }
+
     try {
-      await setSpotifyLiked(track.id, next);
+      await setSpotifyLiked(track.id, next, {
+        title: track.title,
+        artist: track.artist,
+        album: track.album,
+        durationMs: track.durationMs,
+        coverUrl: track.coverUrl,
+        spotifyUrl: track.spotifyUrl,
+      });
     } catch (cause) {
       useToastStore.getState().push({
         kind: "error",
@@ -608,7 +639,7 @@ export function AlbumDetailView() {
                           type="button"
                           onClick={(event) => {
                             event.stopPropagation();
-                            void toggleLiked(track);
+                            void toggleLiked(track, local);
                           }}
                           disabled={heartBusy}
                           aria-pressed={liked}

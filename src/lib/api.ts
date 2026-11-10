@@ -18,6 +18,8 @@ import type {
   SpotifyAlbumCatalog,
   SpotifyCatalogTrack,
   SpotifyLikedSnapshot,
+  SpotifyLikedTrackInput,
+  SpotifyProfile,
   SpotifySearchCatalog,
   StatsData,
   Track,
@@ -1172,6 +1174,22 @@ export const backend = {
     return electronApi().invoke<SpotifyAuthStatus>("spotify:status");
   },
 
+  async spotifyProfile(): Promise<SpotifyProfile> {
+    if (!isElectron) {
+      return {
+        ok: false,
+        id: null,
+        displayName: null,
+        product: null,
+        source: null,
+        status: null,
+        error: "Spotify profile needs the Electron desktop app.",
+        notice: null,
+      };
+    }
+    return electronApi().invoke<SpotifyProfile>("spotify:profile");
+  },
+
   async getReleaseFeed(): Promise<ReleaseFeed> {
     if (!isElectron) return emptyReleaseFeed();
     return electronApi().invoke<ReleaseFeed>("releases:get");
@@ -1222,6 +1240,7 @@ export const backend = {
   async setSpotifyLiked(
     trackId: string,
     liked: boolean,
+    track?: SpotifyLikedTrackInput | null,
   ): Promise<SpotifyLikedSnapshot> {
     if (!isElectron) {
       throw new Error("Spotify liked songs need the Electron desktop app.");
@@ -1229,6 +1248,7 @@ export const backend = {
     return electronApi().invoke<SpotifyLikedSnapshot>("spotify-liked:set", {
       trackId,
       liked,
+      track: track ?? null,
     });
   },
 

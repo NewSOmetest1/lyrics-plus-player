@@ -405,6 +405,7 @@ export function PlaylistView() {
 
   const likedSongsSource = useSettingsStore((state) => state.likedSongsSource);
   const spotifySnapshot = useSpotifyLikedStore((state) => state.snapshot);
+  const spotifyLoaded = useSpotifyLikedStore((state) => state.loaded);
   const spotifySyncing = useSpotifyLikedStore((state) => state.syncing);
   const syncSpotify = useSpotifyLikedStore((state) => state.sync);
   const setSpotifyLiked = useSpotifyLikedStore((state) => state.setLiked);
@@ -419,6 +420,26 @@ export function PlaylistView() {
   const playlist = playlists.find((item) => item.id === selectedPlaylistId) ?? null;
   const liked = isLikedPlaylist(playlist);
   const spotifyMode = liked && likedSongsSource === "spotify";
+
+  // Pull Spotify-side changes when Liked Songs is opened and the mirror is
+  // older than a few minutes. Silent, with a retry guard so a rate-limited
+  // sync does not loop while the page stays mounted.
+  const lastAutoSyncRef = useRef(0);
+  useEffect(() => {
+    if (!spotifyMode || !spotifyLoaded) return;
+    const fetchedAt = spotifySnapshot?.fetchedAt ?? 0;
+    if (fetchedAt && Date.now() - fetchedAt < 5 * 60 * 1000) return;
+    if (spotifySyncing) return;
+    if (Date.now() - lastAutoSyncRef.current < 60 * 1000) return;
+    lastAutoSyncRef.current = Date.now();
+    void syncSpotify(true);
+  }, [
+    spotifyMode,
+    spotifyLoaded,
+    spotifySnapshot?.fetchedAt,
+    spotifySyncing,
+    syncSpotify,
+  ]);
 
   const resolvedTracks = useMemo(() => {
     if (!playlist) return [];
@@ -496,23 +517,17 @@ export function PlaylistView() {
 
   const unlikeLikedTrack = useCallback(
     async (item: SpotifyLikedTrack) => {
-      try {
-        await setSpotifyLiked(item.id, false);
-        if (item.localPath) {
-          await removeTrack(LIKED_PLAYLIST_ID, item.localPath);
-        }
-        useToastStore.getState().push({
-          kind: "info",
-          title: "💔 Removed from Liked Songs",
-          description: item.title,
-        });
-      } catch (error) {
-        useToastStore.getState().push({
-          kind: "error",
-          title: "Could not update Spotify Liked Songs",
-          description: error instanceof Error ? error.message : String(error),
-        });
+      if (item.localPath) {
+        await removeTrack(LIKED_PLAYLIST_ID, item.localPath);
       }
+      await setSpotifyLiked(item.id, false, {
+        title: item.title,
+        artist: item.artist,
+        album: item.album,
+        durationMs: item.durationMs,
+        coverUrl: item.coverUrl,
+        spotifyUrl: item.spotifyUrl,
+      });
     },
     [removeTrack, setSpotifyLiked],
   );

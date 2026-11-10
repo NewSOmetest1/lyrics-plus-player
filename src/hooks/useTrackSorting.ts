@@ -107,8 +107,16 @@ function compare<T>(
       );
     case "duration":
       return accessors.duration(a) - accessors.duration(b);
-    case "added":
-      return accessors.added(b) - accessors.added(a);
+    case "added": {
+      const aAdded = accessors.added(a);
+      const bAdded = accessors.added(b);
+      // Spotify's desktop cache has no add dates (0). Keep those rows after
+      // dated ones so a fresh app like always lands on top of the dated list.
+      if (aAdded <= 0 && bAdded <= 0) return 0;
+      if (aAdded <= 0) return 1;
+      if (bAdded <= 0) return -1;
+      return bAdded - aAdded;
+    }
   }
 }
 
@@ -142,7 +150,17 @@ export function useTrackSorting<T>(
     const next = [...items].sort((a, b) =>
       compare(a, b, mode, resolvedAccessors),
     );
-    return state.reverse ? next.reverse() : next;
+    if (!state.reverse) return next;
+    if (mode !== "added") return next.reverse();
+    // Reversing a date sort must not float undated Spotify rows above a
+    // track that was just liked; reverse only the rows that have a date.
+    const dated: T[] = [];
+    const undated: T[] = [];
+    for (const item of next) {
+      if (resolvedAccessors.added(item) > 0) dated.push(item);
+      else undated.push(item);
+    }
+    return [...dated.reverse(), ...undated.reverse()];
   }, [items, resolvedAccessors, state.mode, state.reverse]);
 
   const setMode = useCallback(

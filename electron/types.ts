@@ -125,6 +125,19 @@ export type ArtistSource = "library" | "manual" | "spotify";
 
 export type SpotifyLikedSource = "web" | "partner" | "desktop" | "cache";
 
+/**
+ * Catalog metadata supplied when a track is liked from the app, so the local
+ * liked-songs mirror can show it immediately instead of waiting for a sync.
+ */
+export interface SpotifyLikedTrackInput {
+  title: string;
+  artist: string;
+  album: string;
+  durationMs: number;
+  coverUrl: string | null;
+  spotifyUrl: string;
+}
+
 /** One track from the user's Spotify liked-songs collection. */
 export interface SpotifyLikedTrack {
   id: string;
@@ -150,6 +163,19 @@ export interface SpotifyLikedSnapshot {
   source: SpotifyLikedSource | null;
   warnings: string[];
   authenticated: boolean;
+}
+
+/** Signed-in Spotify account shown in Options → Providers. */
+export interface SpotifyProfile {
+  ok: boolean;
+  id: string | null;
+  displayName: string | null;
+  product: string | null;
+  source: "web" | "partner" | null;
+  status: number | null;
+  error: string | null;
+  /** Non-fatal note, e.g. the public API was rate limited. */
+  notice: string | null;
 }
 
 /** Artist metadata from Spotify's catalog, used by search and artist pages. */

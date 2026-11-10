@@ -1,7 +1,11 @@
 import { create } from "zustand";
 
 import { backend } from "@/lib/api";
-import type { SpotifyLikedSnapshot, SpotifyLikedTrack } from "@/types";
+import type {
+  SpotifyLikedSnapshot,
+  SpotifyLikedTrack,
+  SpotifyLikedTrackInput,
+} from "@/types";
 import { useToastStore } from "@/store/toastStore";
 
 interface DerivedLiked {
@@ -32,8 +36,12 @@ interface SpotifyLikedState extends DerivedLiked {
 
   init: () => Promise<void>;
   refresh: () => Promise<SpotifyLikedSnapshot | null>;
-  sync: () => Promise<SpotifyLikedSnapshot | null>;
-  setLiked: (trackId: string, liked: boolean) => Promise<boolean>;
+  sync: (silent?: boolean) => Promise<SpotifyLikedSnapshot | null>;
+  setLiked: (
+    trackId: string,
+    liked: boolean,
+    track?: SpotifyLikedTrackInput | null,
+  ) => Promise<boolean>;
   itemForPath: (trackPath: string | null | undefined) => SpotifyLikedTrack | null;
   knownIdForPath: (trackPath: string | null | undefined) => string | null;
 }
@@ -76,7 +84,7 @@ export const useSpotifyLikedStore = create<SpotifyLikedState>((set, get) => ({
     }
   },
 
-  sync: async () => {
+  sync: async (silent = false) => {
     if (get().syncing) return null;
     set({ syncing: true });
     try {
@@ -88,41 +96,87 @@ export const useSpotifyLikedStore = create<SpotifyLikedState>((set, get) => ({
         loaded: true,
         syncing: false,
       });
-      useToastStore.getState().push({
-        kind: "success",
-        title: "Spotify Liked Songs synced",
-        description: `${snapshot.total} tracks · ${snapshot.downloaded} downloaded · ${snapshot.missing} missing`,
-      });
+      if (!silent) {
+        useToastStore.getState().push({
+          kind: "success",
+          title: "Spotify Liked Songs synced",
+          description: `${snapshot.total} tracks · ${snapshot.downloaded} downloaded · ${snapshot.missing} missing`,
+        });
+      }
       return snapshot;
     } catch (error) {
       set({ syncing: false });
-      useToastStore.getState().push({
-        kind: "error",
-        title: "Spotify sync failed",
-        description: error instanceof Error ? error.message : String(error),
-      });
+      if (silent) {
+        console.warn("[spotify-liked] background sync failed:", error);
+      } else {
+        useToastStore.getState().push({
+          kind: "error",
+          title: "Spotify sync failed",
+          description: error instanceof Error ? error.message : String(error),
+        });
+      }
       return null;
     }
   },
 
-  setLiked: async (trackId, liked) => {
+  setLiked: async (trackId, liked, track) => {
     set((state) => ({
       likedOverrides: { ...state.likedOverrides, [trackId]: liked },
     }));
     try {
-      const snapshot = await backend.setSpotifyLiked(trackId, liked);
+      const snapshot = await backend.setSpotifyLiked(trackId, liked, track);
       set({
         snapshot,
         ...derive(snapshot, get().knownIds),
       });
+      const failure = snapshot.warnings.find((warning) =>
+        warning.startsWith("Spotify Like Error"),
+      );
+      if (failure) {
+        const separator = failure.indexOf(" — ");
+        useToastStore.getState().push({
+          kind: "error",
+          title:
+            separator >= 0 ? failure.slice(0, separator) : failure,
+          description:
+            (separator >= 0 ? failure.slice(separator + 3) : "") ||
+            track?.title ||
+            "",
+        });
+        return false;
+      }
+      useToastStore.getState().push({
+        kind: liked ? "success" : "info",
+        title: liked
+          ? "❤️ Saved to Spotify profile"
+          : "💔 Removed from Spotify profile",
+        description: track?.title ?? "",
+      });
+      const fallback = snapshot.warnings.find((warning) =>
+        warning.startsWith("Web API fallback:"),
+      );
+      if (fallback) {
+        useToastStore.getState().push({
+          kind: "info",
+          title: "Spotify Web API limited",
+          description: fallback.replace("Web API fallback: ", ""),
+        });
+      }
       return true;
     } catch (error) {
-      set((state) => {
-        const likedOverrides = { ...state.likedOverrides };
-        delete likedOverrides[trackId];
-        return { likedOverrides };
+      // Keep the optimistic like: the local Liked Songs entry already exists.
+      const message =
+        error instanceof Error ? error.message : String(error);
+      useToastStore.getState().push({
+        kind: "error",
+        title: message.startsWith("Could not match")
+          ? message
+          : "Spotify Like Error",
+        description: message.startsWith("Could not match")
+          ? (track?.title ?? "")
+          : message,
       });
-      throw error;
+      return false;
     }
   },
 

@@ -7,9 +7,12 @@ import {
 } from "node:fs";
 import path from "node:path";
 
-import { getSpotifyAccessToken, readSpotifyCookies } from "./spotify-auth.cjs";
+import {
+  getSpotifyAccessToken,
+  readSpotifyCookies,
+  searchSpotifyTracksViaWeb,
+} from "./spotify-auth.cjs";
 import { createSpotifyTrackMatcher } from "./spotify-match";
-import { readSpotifyDesktopLikedTracks } from "./spotify-desktop";
 import {
   SpotifyWebClient,
   type SpotifyWebDeps,
@@ -19,6 +22,8 @@ import type {
   SpotifyLikedSnapshot,
   SpotifyLikedSource,
   SpotifyLikedTrack,
+  SpotifyLikedTrackInput,
+  SpotifyProfile,
 } from "./types";
 
 const WEB_API = "https://api.spotify.com/v1/me/tracks";
@@ -45,6 +50,79 @@ interface SpotifyLikedCacheFile {
   fetchedAt: number;
   source: Exclude<SpotifyLikedSource, "cache">;
   items: CachedSpotifyLikedTrack[];
+  /**
+   * Likes/unlikes made inside the app, kept until the Spotify source catches
+   * up. A full sync otherwise drops a just-liked track when the source cache
+   * (or a different signed-in account) has not seen it yet.
+   */
+  overrides?: Record<string, CachedSpotifyOverride>;
+}
+
+interface CachedSpotifyOverride {
+  liked: boolean;
+  updatedAt: number;
+  /** Metadata needed to re-add an optimistic like after a sync. */
+  track?: CachedSpotifyLikedTrack;
+}
+
+function preserveLikedOrder(
+  previous: CachedSpotifyLikedTrack[],
+  fetched: CachedSpotifyLikedTrack[],
+): CachedSpotifyLikedTrack[] {
+  if (previous.length === 0) return fetched;
+  const fetchedById = new Map(fetched.map((item) => [item.id, item]));
+  const previousIds = new Set(previous.map((item) => item.id));
+  const result: CachedSpotifyLikedTrack[] = [];
+  // New Spotify-side additions go first, in the order the source returned.
+  for (const item of fetched) {
+    if (!previousIds.has(item.id)) result.push(item);
+  }
+  // Rows the user already saw keep their order, so a sync does not reshuffle
+  // the whole list when the source returns a different ordering.
+  for (const item of previous) {
+    const current = fetchedById.get(item.id);
+    if (current) result.push(current);
+  }
+  return result;
+}
+
+function mergeLikedOverrides(
+  items: CachedSpotifyLikedTrack[],
+  overrides?: Record<string, CachedSpotifyOverride>,
+): {
+  items: CachedSpotifyLikedTrack[];
+  overrides?: Record<string, CachedSpotifyOverride>;
+} {
+  if (!overrides || Object.keys(overrides).length === 0) {
+    return { items };
+  }
+  const present = new Set(items.map((item) => item.id));
+  const removed = new Set<string>();
+  const pending: CachedSpotifyLikedTrack[] = [];
+  const next: Record<string, CachedSpotifyOverride> = {};
+
+  for (const [id, override] of Object.entries(overrides)) {
+    const inSource = present.has(id);
+    if (override.liked) {
+      if (inSource) continue; // Source caught up: drop the local override.
+      if (!override.track) continue;
+      pending.push(override.track);
+      next[id] = override;
+      continue;
+    }
+    if (inSource) {
+      removed.add(id);
+      next[id] = override;
+    }
+  }
+
+  return {
+    items: [
+      ...pending,
+      ...items.filter((item) => !removed.has(item.id)),
+    ],
+    overrides: Object.keys(next).length > 0 ? next : undefined,
+  };
 }
 
 interface ImageSource {
@@ -284,14 +362,188 @@ async function fetchPartnerLikedTracks(
   return tracks;
 }
 
+function spotifyLikeError(
+  status: number,
+  statusText: string,
+  body: string,
+): string {
+  const detail = body.replace(/\s+/g, " ").trim().slice(0, 400);
+  return `Spotify Like Error: ${status} ${statusText || "Request failed"}${
+    detail ? ` — ${detail}` : ""
+  }`;
+}
+
+/** Resolve a missing Spotify id through the public search, then the web UI. */
+async function searchSpotifyTrackId(
+  deps: SpotifyWebDeps,
+  credentials: Credentials,
+  token: string | null,
+  input: SpotifyLikedTrackInput | null,
+): Promise<string | null> {
+  const title = input?.title.trim() ?? "";
+  const artist = input?.artist.trim() ?? "";
+  const query = [artist, title].filter(Boolean).join(" ").trim();
+  if (!query) return null;
+
+  if (token) {
+    const url = `https://api.spotify.com/v1/search?q=${encodeURIComponent(
+      query,
+    )}&type=track&limit=1`;
+    try {
+      const response = await fetchWithTimeout(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+      });
+      const body = await response.text();
+      if (response.ok) {
+        const parsed = JSON.parse(body) as {
+          tracks?: { items?: Array<{ id?: string }> };
+        };
+        const id = parsed.tracks?.items?.[0]?.id?.trim();
+        if (id) return id;
+      } else {
+        console.error(
+          `[spotify-liked] GET /v1/search -> ${response.status} ${response.statusText}`,
+          body,
+        );
+      }
+    } catch (error) {
+      console.error("[spotify-liked] Spotify search request failed", error);
+    }
+  }
+
+  try {
+    const rows = await searchSpotifyTracksViaWeb(
+      deps,
+      credentials.spDc,
+      credentials.spKey,
+      query,
+    );
+    return rows[0]?.id?.trim() ?? null;
+  } catch (error) {
+    console.error("[spotify-liked] Spotify web search failed", error);
+    return null;
+  }
+}
+
+/** Read the signed-in account for Options → Providers. */
+export async function fetchSpotifyProfile(
+  deps: SpotifyWebDeps,
+  store: LibraryStore,
+): Promise<SpotifyProfile> {
+  const credentials = await resolveCredentials(deps, store);
+  if (!credentials) {
+    return {
+      ok: false,
+      id: null,
+      displayName: null,
+      product: null,
+      source: null,
+      status: null,
+      error: "Spotify is not connected.",
+      notice: null,
+    };
+  }
+
+  let webStatus: number | null = null;
+  let webError: string | null = null;
+  const token = await getSpotifyAccessToken(
+    deps,
+    credentials.spDc,
+    credentials.spKey,
+  ).catch((error: unknown) => {
+    console.error("[spotify-profile] token request failed", error);
+    return {
+      token: null,
+      status: null,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  });
+
+  if (token.token) {
+    try {
+      const response = await fetchWithTimeout("https://api.spotify.com/v1/me", {
+        headers: {
+          Authorization: `Bearer ${token.token}`,
+          Accept: "application/json",
+        },
+      });
+      webStatus = response.status;
+      const body = await response.text();
+      if (response.ok) {
+        const profile = JSON.parse(body) as {
+          id?: string;
+          display_name?: string;
+          product?: string;
+        };
+        return {
+          ok: true,
+          id: profile.id?.trim() || null,
+          displayName:
+            profile.display_name?.trim() || profile.id?.trim() || null,
+          product: profile.product ?? null,
+          source: "web",
+          status: response.status,
+          error: null,
+          notice: null,
+        };
+      }
+      webError = `Spotify Profile Error: ${response.status} ${response.statusText}`;
+      console.error(
+        `[spotify-profile] GET /v1/me -> ${response.status} ${response.statusText}`,
+        body,
+      );
+    } catch (error) {
+      webError = `Spotify Profile Error: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+      console.error("[spotify-profile] GET /v1/me failed", error);
+    }
+  } else if (token.message) {
+    webError = `Spotify Profile Error: ${token.message}`;
+  }
+
+  const client = new SpotifyWebClient(deps);
+  try {
+    await client.configure(credentials.spDc, credentials.spKey);
+    const profile = await client.getProfile();
+    return {
+      ok: true,
+      id: profile.id,
+      displayName: profile.displayName,
+      product: null,
+      source: "partner",
+      status: webStatus,
+      error: null,
+      notice: webError,
+    };
+  } catch (error) {
+    console.error("[spotify-profile] web-session profile failed", error);
+    const partnerError = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      id: null,
+      displayName: null,
+      product: null,
+      source: null,
+      status: webStatus,
+      error: [webError, partnerError].filter(Boolean).join("; "),
+      notice: null,
+    };
+  } finally {
+    client.dispose();
+  }
+}
+
 /**
  * Spotify liked-songs source with a local cache.
  *
- * The web-player cookies used by Lyrics+ may belong to a different account
- * than the Spotify desktop client. The desktop collection therefore acts as a
- * fallback when the web account is empty or rate limited. Snapshot matching is
- * always recomputed against the live local library, so newly downloaded files
- * become playable without another network sync.
+ * Likes are written to the Spotify Web API first (PUT/DELETE /v1/me/tracks).
+ * If that endpoint is rate limited, the same signed-in web session is used
+ * through GraphQL. The desktop cache is deliberately not read: the signed-in
+ * account must be the source of truth.
  */
 export class SpotifyLikedStore {
   private cache: SpotifyLikedCacheFile | null = null;
@@ -332,12 +584,32 @@ export class SpotifyLikedStore {
             typeof item.title === "string",
         )
         .map(toCachedTrack);
+      const overrides: Record<string, CachedSpotifyOverride> = {};
+      if (parsed.overrides && typeof parsed.overrides === "object") {
+        for (const [id, value] of Object.entries(parsed.overrides)) {
+          if (!value || typeof value !== "object") continue;
+          const record = value as Partial<CachedSpotifyOverride>;
+          if (
+            typeof record.liked !== "boolean" ||
+            typeof record.updatedAt !== "number"
+          ) {
+            continue;
+          }
+          overrides[id] = {
+            liked: record.liked,
+            updatedAt: record.updatedAt,
+            track: record.track ? toCachedTrack(record.track) : undefined,
+          };
+        }
+      }
       this.cache = {
         version: 1,
         fetchedAt:
           typeof parsed.fetchedAt === "number" ? parsed.fetchedAt : 0,
         source: parsed.source,
         items,
+        overrides:
+          Object.keys(overrides).length > 0 ? overrides : undefined,
       };
       return this.cache;
     } catch (error) {
@@ -404,7 +676,11 @@ export class SpotifyLikedStore {
     warnings: string[],
     source: SpotifyLikedSource | null = data?.source ?? null,
   ): SpotifyLikedSnapshot {
-    const matched = this.match(data?.items ?? []);
+    const merged = mergeLikedOverrides(
+      data?.items ?? [],
+      data?.overrides,
+    );
+    const matched = this.match(merged.items);
     const items = matched.filter((item) => !this.hidden.has(item.id));
     const downloaded = items.filter((item) => item.isDownloaded).length;
     return {
@@ -468,36 +744,21 @@ export class SpotifyLikedStore {
       }
     }
 
-    if (!items || items.length === 0) {
-      // The desktop client is authoritative for the account that owns the
-      // local music library; prefer it over a web account with no likes.
-      const desktop = readSpotifyDesktopLikedTracks();
-      if (desktop && desktop.tracks.length > 0) {
-        items = desktop.tracks.map((track) => ({
-          ...track,
-          spotifyUrl: `https://open.spotify.com/track/${track.id}`,
-        }));
-        source = "desktop";
-        warnings.push(
-          `Loaded ${desktop.tracks.length} liked tracks from the Spotify desktop cache.`,
-        );
-        if (desktop.missingMetadata > 0) {
-          warnings.push(
-            `${desktop.missingMetadata} desktop liked tracks had no cached metadata.`,
-          );
-        }
-      }
-    }
-
     if ((!items || items.length === 0) && credentials) {
+      // The public Web API is frequently rate limited for web-player tokens.
+      // Fall back to the same signed-in session's GraphQL endpoint rather than
+      // reading the Spotify desktop cache.
       try {
-        const partnerItems = await fetchPartnerLikedTracks(deps, credentials);
-        if (partnerItems.length > 0) {
-          items = partnerItems;
+        const partnerTracks = await fetchPartnerLikedTracks(deps, credentials);
+        if (partnerTracks.length > 0) {
+          items = partnerTracks;
           source = "partner";
-        } else if (!items || items.length === 0) {
+          warnings.push(
+            `Web API unavailable; loaded ${partnerTracks.length} liked tracks through the Spotify web session.`,
+          );
+        } else if (!items) {
           items = [];
-          source = source ?? "partner";
+          source = "partner";
           warnings.push("The signed-in Spotify account has no liked songs.");
         }
       } catch (error) {
@@ -509,12 +770,16 @@ export class SpotifyLikedStore {
       }
     }
 
+    const cached = this.readCache();
+    const overrides = cached?.overrides;
     if (items !== null && items.length === 0) {
+      const merged = mergeLikedOverrides([], overrides);
       const empty: SpotifyLikedCacheFile = {
         version: 1,
         fetchedAt: Date.now(),
         source: source ?? "web",
-        items: [],
+        items: merged.items,
+        overrides: merged.overrides,
       };
       this.hidden.clear();
       this.writeCache(empty);
@@ -522,7 +787,6 @@ export class SpotifyLikedStore {
     }
 
     if (!items) {
-      const cached = this.readCache();
       if (cached) {
         warnings.push(
           "Spotify sync failed; showing the last saved cache.",
@@ -536,15 +800,89 @@ export class SpotifyLikedStore {
       );
     }
 
+    const ordered = preserveLikedOrder(cached?.items ?? [], items);
+    const merged = mergeLikedOverrides(ordered, overrides);
     const data: SpotifyLikedCacheFile = {
       version: 1,
       fetchedAt: Date.now(),
       source: source ?? "web",
-      items,
+      items: merged.items,
+      overrides: merged.overrides,
     };
     this.hidden.clear();
     this.writeCache(data);
     return this.snapshot(data, authenticated, warnings);
+  }
+
+  /**
+   * Keep the local mirror in step with an immediate like/unlike. Without this
+   * the heart only wrote to Spotify, while the Liked Songs page kept showing
+   * the previous cache until a full sync.
+   */
+  private updateCache(
+    id: string,
+    liked: boolean,
+    input: SpotifyLikedTrackInput | null,
+  ): void {
+    const cached = this.readCache();
+    if (!liked) {
+      const overrides = {
+        ...(cached?.overrides ?? {}),
+        [id]: { liked: false, updatedAt: Date.now() },
+      };
+      // Record the unlike even when the track was not in the cached list, so
+      // a later stale source pull cannot bring it back.
+      this.writeCache({
+        version: 1,
+        fetchedAt: Date.now(),
+        source: cached?.source ?? "web",
+        items: (cached?.items ?? []).filter((item) => item.id !== id),
+        overrides,
+      });
+      return;
+    }
+
+    const existing = cached?.items.find((item) => item.id === id);
+    const title = input?.title.trim() ?? "";
+    const artist = input?.artist.trim() ?? "";
+    const durationMs =
+      typeof input?.durationMs === "number" &&
+      Number.isFinite(input.durationMs)
+        ? Math.max(0, input.durationMs)
+        : 0;
+    const item: CachedSpotifyLikedTrack | null =
+      existing ??
+      (title && artist
+        ? {
+            id,
+            title,
+            artist,
+            album: input?.album.trim() ?? "",
+            durationMs,
+            coverUrl: input?.coverUrl ?? null,
+            spotifyUrl:
+              input?.spotifyUrl?.trim() ||
+              `https://open.spotify.com/track/${id}`,
+            addedAt: Date.now(),
+          }
+        : null);
+    if (!item) return;
+
+    this.writeCache({
+      version: 1,
+      // Treat the optimistic update as fresh: a full pull immediately after
+      // liking could otherwise resurrect a stale source snapshot without it.
+      fetchedAt: Date.now(),
+      source: cached?.source ?? "web",
+      items: [
+        item,
+        ...(cached?.items ?? []).filter((entry) => entry.id !== id),
+      ],
+      overrides: {
+        ...(cached?.overrides ?? {}),
+        [id]: { liked: true, updatedAt: Date.now(), track: item },
+      },
+    });
   }
 
   async setLiked(
@@ -553,26 +891,57 @@ export class SpotifyLikedStore {
     trackId: string,
     liked: boolean,
     authenticated: boolean,
+    input: SpotifyLikedTrackInput | null = null,
   ): Promise<SpotifyLikedSnapshot> {
-    const id = trackId.trim();
-    if (!/^[A-Za-z0-9]{22}$/.test(id)) {
-      throw new Error("Invalid Spotify track id.");
-    }
+    let id = trackId.trim();
     const credentials = await resolveCredentials(deps, store);
-    if (!credentials) {
-      throw new Error(
-        "Spotify is not connected. Open Settings → Providers and sign in first.",
+    const token = credentials
+      ? await getSpotifyAccessToken(
+          deps,
+          credentials.spDc,
+          credentials.spKey,
+        ).catch((error: unknown) => {
+          console.error("[spotify-liked] token request failed", error);
+          return {
+            token: null,
+            status: null,
+            message: error instanceof Error ? error.message : String(error),
+          };
+        })
+      : null;
+
+    if (!/^[A-Za-z0-9]{22}$/.test(id)) {
+      if (!credentials) {
+        throw new Error("Could not match Spotify ID");
+      }
+      const resolved = await searchSpotifyTrackId(
+        deps,
+        credentials,
+        token?.token ?? null,
+        input,
       );
+      if (!resolved) throw new Error("Could not match Spotify ID");
+      id = resolved;
     }
 
+    // Local-first: the heart and Liked Songs update even when Spotify is
+    // throttled. The override keeps this pending like through a later sync.
+    if (liked) this.hidden.delete(id);
+    else this.hidden.add(id);
+    this.updateCache(id, liked, input);
+
     const warnings: string[] = [];
+    if (!credentials) {
+      warnings.push(
+        "Spotify Like Error: Spotify is not connected. Open Settings → Providers and sign in.",
+      );
+      return { ...this.getSnapshot(authenticated), warnings };
+    }
+
     let saved = false;
-    const token = await getSpotifyAccessToken(
-      deps,
-      credentials.spDc,
-      credentials.spKey,
-    );
-    if (token.token) {
+    let webError: string | null = null;
+
+    if (token?.token) {
       try {
         const response = await fetchWithTimeout(
           `${WEB_API}?ids=${encodeURIComponent(id)}`,
@@ -581,26 +950,33 @@ export class SpotifyLikedStore {
             headers: {
               Authorization: `Bearer ${token.token}`,
               "Content-Type": "application/json",
+              Accept: "application/json",
             },
           },
         );
+        const body = await response.text();
         if (response.ok) {
           saved = true;
         } else {
-          const retryAfter = response.headers.get("retry-after");
-          warnings.push(
-            `Spotify Web API ${response.status}${
-              retryAfter ? ` (retry after ${retryAfter}s)` : ""
-            }`,
+          webError = spotifyLikeError(
+            response.status,
+            response.statusText,
+            body,
+          );
+          console.error(
+            `[spotify-liked] ${liked ? "PUT" : "DELETE"} /v1/me/tracks?ids=${id} -> ${response.status} ${response.statusText}`,
+            body,
           );
         }
       } catch (error) {
-        warnings.push(
-          error instanceof Error ? error.message : String(error),
-        );
+        webError = `Spotify Like Error: ${
+          error instanceof Error ? error.message : String(error)
+        }`;
+        console.error("[spotify-liked] Web API like request failed", error);
       }
-    } else if (token.message) {
-      warnings.push(token.message);
+    } else if (token?.message) {
+      webError = `Spotify Like Error: ${token.message}`;
+      console.error("[spotify-liked] no access token:", token.message);
     }
 
     if (!saved) {
@@ -609,15 +985,39 @@ export class SpotifyLikedStore {
         await client.configure(credentials.spDc, credentials.spKey);
         await client.setTrackSaved(id, liked);
         saved = true;
+        console.log(
+          `[spotify-liked] ${
+            liked ? "saved" : "removed"
+          } ${id} through the Spotify web session (Web API: ${
+            webError ?? "unknown error"
+          })`,
+        );
+      } catch (error) {
+        console.error(
+          "[spotify-liked] Spotify web-session like request failed",
+          error,
+        );
+        const partnerError =
+          error instanceof Error ? error.message : String(error);
+        webError = webError
+          ? `${webError}. Spotify web-session fallback failed: ${partnerError}`
+          : `Spotify Like Error: ${partnerError}`;
       } finally {
         client.dispose();
       }
     }
 
-    if (liked) this.hidden.delete(id);
-    else this.hidden.add(id);
+    if (!saved && webError) warnings.push(webError);
+    else if (saved && webError) {
+      warnings.push(
+        `Web API fallback: ${webError.replace(
+          / — .*$/s,
+          "",
+        )}; saved through the Spotify web session.`,
+      );
+    }
 
     const snapshot = this.getSnapshot(authenticated);
-    return { ...snapshot, warnings };
+    return { ...snapshot, warnings: [...snapshot.warnings, ...warnings] };
   }
 }

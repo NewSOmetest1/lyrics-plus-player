@@ -444,6 +444,27 @@ export class SpotifyWebClient {
 
   private username: string | null = null;
 
+  /** Signed-in Spotify username, for matching the desktop client account. */
+  async getUsername(): Promise<string> {
+    return this.currentUsername();
+  }
+
+  /** Signed-in account id and display name for the settings card. */
+  async getProfile(): Promise<{ id: string; displayName: string }> {
+    const data = await this.query<{
+      me?: { profile?: { username?: string; name?: string } };
+    }>("profileAttributes", {}, HASHES.profileAttributes);
+    const username = data.me?.profile?.username?.trim();
+    if (!username) {
+      throw new Error("Spotify did not return the signed-in profile.");
+    }
+    this.username = username;
+    return {
+      id: username,
+      displayName: data.me?.profile?.name?.trim() || username,
+    };
+  }
+
   private async currentUsername(): Promise<string> {
     if (this.username) return this.username;
     const data = await this.query<{

@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 import type { Playlist, Track } from "@/types";
 import { LIKED_PLAYLIST_ID } from "@/types";
-import { backend } from "@/lib/api";
+import { backend, coverUrl } from "@/lib/api";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useSpotifyLikedStore } from "@/store/spotifyLikedStore";
 import { useToastStore } from "@/store/toastStore";
@@ -280,57 +280,43 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
     const spotifyItem =
       source === "spotify" ? spotifyStore.itemForPath(trackPath) : null;
     const wasLiked = get().likedPaths.has(normalizeTrackPath(trackPath));
+    const currentlyLiked = wasLiked || Boolean(spotifyItem);
+    const knownId =
+      source === "spotify"
+        ? (spotifyItem?.id ?? spotifyStore.knownIdForPath(trackPath) ?? "")
+        : "";
 
-    // Reverse-sync when this track belongs to the Spotify liked collection.
-    if (spotifyItem) {
-      try {
-        await spotifyStore.setLiked(spotifyItem.id, false);
-      } catch (error) {
-        reportError(error);
-        return true;
-      }
+    // Local first: the heart and playlists.json change before any network
+    // request, so a Spotify rate limit cannot lose the user's like.
+    if (currentlyLiked) {
       if (wasLiked) await get().removeTrack(likedPlaylist.id, trackPath);
-      useToastStore.getState().push({
-        kind: "info",
-        title: "💔 Removed from Liked Songs",
-        description: track.title,
-      });
-      return false;
+    } else {
+      const result = await get().addTrack(likedPlaylist.id, trackPath);
+      if (!result) return false;
     }
 
-    if (wasLiked) {
-      const result = await get().removeTrack(likedPlaylist.id, trackPath);
-      if (!result?.changed) return true;
-      useToastStore.getState().push({
-        kind: "info",
-        title: "💔 Removed from Liked Songs",
-        description: track.title,
-      });
-      return false;
-    }
-
-    // Tracks that were previously unliked still have a known Spotify id.
     if (source === "spotify") {
-      const knownId = spotifyStore.knownIdForPath(trackPath);
-      if (knownId) {
-        try {
-          await spotifyStore.setLiked(knownId, true);
-        } catch (error) {
-          reportError(error);
-          return false;
-        }
-      }
+      // Empty id means "resolve by artist + title" in the main process.
+      await spotifyStore.setLiked(knownId, !currentlyLiked, {
+        title: track.title,
+        artist: track.artist,
+        album: track.album,
+        durationMs: track.durationMs,
+        coverUrl: coverUrl(track, true),
+        spotifyUrl: knownId
+          ? `https://open.spotify.com/track/${knownId}`
+          : "",
+      });
+      return !currentlyLiked;
     }
 
-    const result = await get().addTrack(likedPlaylist.id, trackPath);
-    if (!result) return false;
-    if (result.changed) {
-      useToastStore.getState().push({
-        kind: "success",
-        title: "❤️ Added to Liked Songs",
-        description: track.title,
-      });
-    }
-    return true;
+    useToastStore.getState().push({
+      kind: currentlyLiked ? "info" : "success",
+      title: currentlyLiked
+        ? "💔 Removed from Liked Songs"
+        : "❤️ Added to Liked Songs",
+      description: track.title,
+    });
+    return !currentlyLiked;
   },
 }));

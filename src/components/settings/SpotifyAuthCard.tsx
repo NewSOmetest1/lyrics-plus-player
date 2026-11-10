@@ -17,6 +17,7 @@ import {
   isDesktop,
   type ProviderTestResult,
 } from "@/lib/api";
+import type { SpotifyProfile } from "@/types";
 import { cn } from "@/lib/cn";
 import { useToastStore } from "@/store/toastStore";
 
@@ -50,6 +51,8 @@ export function SpotifyAuthCard({ open }: { open: boolean }) {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<"success" | "error" | null>(null);
+  const [profile, setProfile] = useState<SpotifyProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -80,6 +83,39 @@ export function SpotifyAuthCard({ open }: { open: boolean }) {
       active = false;
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !authenticated || !isDesktop) {
+      setProfile(null);
+      return;
+    }
+    let active = true;
+    setProfileLoading(true);
+    void backend
+      .spotifyProfile()
+      .then((result) => {
+        if (active) setProfile(result);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setProfile({
+          ok: false,
+          id: null,
+          displayName: null,
+          product: null,
+          source: null,
+          status: null,
+          error: error instanceof Error ? error.message : String(error),
+          notice: null,
+        });
+      })
+      .finally(() => {
+        if (active) setProfileLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, authenticated]);
 
   useEffect(() => {
     if (!open || !isDesktop || !window.electronAPI) return;
@@ -248,10 +284,39 @@ export function SpotifyAuthCard({ open }: { open: boolean }) {
             Spotify account
           </p>
           {authenticated ? (
-            <p className="mt-1 flex items-center gap-1.5 text-[10.5px] font-medium text-emerald-300">
-              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-              ✓ Signed in to Spotify
-            </p>
+            <div className="mt-1 space-y-0.5">
+              <p className="flex items-center gap-1.5 text-[10.5px] font-medium text-emerald-300">
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                ✓ Signed in to Spotify
+              </p>
+              {profileLoading ? (
+                <p className="text-[10px] text-white/30">
+                  Checking Spotify account…
+                </p>
+              ) : profile?.ok ? (
+                <p className="text-[10px] text-white/55">
+                  {profile.displayName ?? profile.id}
+                  {profile.id && profile.id !== profile.displayName ? (
+                    <span className="text-white/25"> · {profile.id}</span>
+                  ) : null}
+                  {profile.source === "partner" ? (
+                    <span className="text-white/25"> · web session</span>
+                  ) : null}
+                </p>
+              ) : profile ? (
+                <p
+                  className="break-words text-[10px] text-red-300/75"
+                  title={profile.error ?? undefined}
+                >
+                  {profile.error ?? "Could not read Spotify account"}
+                </p>
+              ) : null}
+              {profile?.notice ? (
+                <p className="break-words text-[9.5px] leading-relaxed text-amber-300/60">
+                  {profile.notice}
+                </p>
+              ) : null}
+            </div>
           ) : (
             <p className="mt-1 text-[10px] leading-relaxed text-white/30">
               Native sign-in in the Spotify window. Both sp_dc and sp_key cookies are saved.
@@ -270,7 +335,7 @@ export function SpotifyAuthCard({ open }: { open: boolean }) {
             ) : (
               <LogOut className="h-3.5 w-3.5" />
             )}
-            Sign out
+            Сменить аккаунт / Log out
           </button>
         ) : (
           <button

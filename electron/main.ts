@@ -49,7 +49,7 @@ import {
   resolveDownloaderSettings,
 } from "./downloader";
 import { ReleasesStore, resolvePreviewUrl } from "./releases";
-import { SpotifyLikedStore } from "./spotify-liked";
+import { SpotifyLikedStore, fetchSpotifyProfile } from "./spotify-liked";
 import { SpotifyCatalogService } from "./spotify-catalog";
 import type {
   DownloadRequest,
@@ -509,6 +509,10 @@ function registerIpc(): void {
 
   ipcMain.handle("spotify:status", () => spotifyStatusPayload());
 
+  ipcMain.handle("spotify:profile", () =>
+    fetchSpotifyProfile({ BrowserWindow, session }, store),
+  );
+
   ipcMain.handle("spotify-liked:get", async () => {
     const status = await spotifyStatusPayload();
     return spotifyLiked.getSnapshot(status.authenticated);
@@ -527,10 +531,38 @@ function registerIpc(): void {
     const record = (payload ?? {}) as {
       trackId?: unknown;
       liked?: unknown;
+      track?: unknown;
     };
-    if (typeof record.trackId !== "string" || !record.trackId.trim()) {
+    if (typeof record.trackId !== "string") {
       throw new Error("A Spotify track id is required.");
     }
+    const sourceTrack =
+      record.track && typeof record.track === "object"
+        ? (record.track as Record<string, unknown>)
+        : null;
+    const track = sourceTrack
+      ? {
+          title:
+            typeof sourceTrack.title === "string" ? sourceTrack.title : "",
+          artist:
+            typeof sourceTrack.artist === "string" ? sourceTrack.artist : "",
+          album:
+            typeof sourceTrack.album === "string" ? sourceTrack.album : "",
+          durationMs:
+            typeof sourceTrack.durationMs === "number" &&
+            Number.isFinite(sourceTrack.durationMs)
+              ? sourceTrack.durationMs
+              : 0,
+          coverUrl:
+            typeof sourceTrack.coverUrl === "string"
+              ? sourceTrack.coverUrl
+              : null,
+          spotifyUrl:
+            typeof sourceTrack.spotifyUrl === "string"
+              ? sourceTrack.spotifyUrl
+              : "",
+        }
+      : null;
     const status = await spotifyStatusPayload();
     return spotifyLiked.setLiked(
       { BrowserWindow, session },
@@ -538,6 +570,7 @@ function registerIpc(): void {
       record.trackId,
       Boolean(record.liked),
       status.authenticated,
+      track,
     );
   });
 
