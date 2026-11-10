@@ -11,6 +11,8 @@ import {
   Check,
   ChevronDown,
   Download,
+  Eye,
+  EyeOff,
   FolderOpen,
   Gamepad2,
   GripVertical,
@@ -347,6 +349,7 @@ function ColorControl({
 
 function DiscordPresenceField({ open }: { open: boolean }) {
   const [value, setValue] = useState("");
+  const [revealed, setRevealed] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -404,15 +407,35 @@ function DiscordPresenceField({ open }: { open: boolean }) {
         running.
       </p>
       <div className="mt-2 flex items-center gap-1.5">
-        <input
-          value={value}
-          onChange={(event) => setValue(event.target.value.trim())}
-          placeholder="e.g. 123456789012345678"
-          inputMode="numeric"
-          spellCheck={false}
-          autoComplete="off"
-          className="h-8 min-w-0 flex-1 rounded-lg border border-white/[0.08] bg-white/[0.04] px-2.5 text-[11px] tabular-nums text-white placeholder:text-white/25 outline-none transition focus:border-accent/40 focus:bg-white/[0.06]"
-        />
+        <div className="relative min-w-0 flex-1">
+          <input
+            type={revealed ? "text" : "password"}
+            value={value}
+            onChange={(event) => setValue(event.target.value.trim())}
+            placeholder="e.g. 123456789012345678"
+            inputMode="numeric"
+            spellCheck={false}
+            autoComplete="off"
+            className="h-8 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] pl-2.5 pr-8 text-[11px] tabular-nums text-white placeholder:text-white/25 outline-none transition focus:border-accent/40 focus:bg-white/[0.06]"
+          />
+          <button
+            type="button"
+            onClick={() => setRevealed((shown) => !shown)}
+            className="absolute right-1 top-1/2 -translate-y-1/2 rounded-md p-1 text-white/30 transition hover:text-white/70"
+            aria-label={
+              revealed
+                ? "Hide Discord application id"
+                : "Show Discord application id"
+            }
+            title={revealed ? "Hide" : "Show"}
+          >
+            {revealed ? (
+              <EyeOff className="h-3.5 w-3.5" />
+            ) : (
+              <Eye className="h-3.5 w-3.5" />
+            )}
+          </button>
+        </div>
         <button
           type="button"
           onClick={() => void save()}
@@ -736,7 +759,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                           onChange={(event) =>
                             update({ lyricsOffset: Number(event.target.value) })
                           }
-                          className="h-7 w-[74px] rounded-md border border-white/[0.08] bg-white/[0.05] px-2 text-center text-[11px] font-semibold tabular-nums text-white outline-none focus:border-accent/40"
+                          className="h-7 w-[74px] appearance-none rounded-md border border-white/[0.08] bg-white/[0.05] px-2 text-center text-[11px] font-semibold tabular-nums text-white outline-none [appearance:textfield] focus:border-accent/40 [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none"
                         />
                         <span className="text-[10px] text-white/30">ms</span>
                         <button
