@@ -50,6 +50,14 @@ const MIME_EXTENSION: Record<string, string> = {
 const PLACEHOLDER_TAG =
   /^(?:unknown(?: artist| album| title)?|unknown)$/i;
 
+/**
+ * Bump when tag/cover extraction changes. Unchanged files are then re-read
+ * once instead of reusing the previous record. Missing value means this is the
+ * first build that knows about the marker; current records are still reusable.
+ */
+const SCANNER_VERSION = "2";
+const SCANNER_VERSION_KEY = "scanner_version";
+
 /** Treat writer placeholders as if the tag were absent. */
 function realTag(value: string | undefined): string {
   const trimmed = value?.trim() ?? "";
@@ -283,14 +291,49 @@ export function ensureCoverVariantsFromFile(
   }
 }
 
+/**
+ * Metadata parsing is cheap, but decoding and re-encoding the embedded cover
+ * is not: a full rescan of a large library can occupy the main process for
+ * tens of seconds. When the file bytes are unchanged the previous record
+ * already has every derived field, so reuse it as-is.
+ */
+function isUnchangedTrack(
+  previous: TrackRecord,
+  stat: { mtimeMs: number; size: number },
+  filePath: string,
+  coversDir: string,
+): boolean {
+  if (
+    previous.modifiedAt !== stat.mtimeMs ||
+    previous.fileSize !== stat.size ||
+    previous.fileName !== path.basename(filePath) ||
+    previous.durationMs <= 0
+  ) {
+    return false;
+  }
+  for (const value of [previous.coverPath, previous.coverFullPath]) {
+    const fileName = coverFileNameFromUrl(value);
+    if (fileName && !existsSync(path.join(coversDir, fileName))) return false;
+  }
+  return true;
+}
+
 async function readTrack(
   filePath: string,
   coversDir: string,
   previous: TrackRecord | undefined,
   knownArtists: Set<string>,
+  reuseUnchanged: boolean,
 ): Promise<TrackRecord> {
   const canonicalPath = path.resolve(filePath);
   const stat = await fs.stat(canonicalPath);
+  if (
+    previous &&
+    reuseUnchanged &&
+    isUnchangedTrack(previous, stat, filePath, coversDir)
+  ) {
+    return { ...previous, path: canonicalPath };
+  }
   const metadata = await parseFile(canonicalPath, {
     duration: true,
     skipCovers: false,
@@ -398,6 +441,12 @@ export async function scanLibrary(
   const errors: string[] = [];
   const scannedTracks: TrackRecord[] = [];
   const knownArtists = libraryArtistNames(store.getTracks());
+  // Reuse unchanged records only while the extraction logic that produced them
+  // is current. After a scanner upgrade every file is re-read exactly once.
+  const storedScannerVersion = store.getSetting(SCANNER_VERSION_KEY);
+  const reuseUnchanged =
+    storedScannerVersion === undefined ||
+    storedScannerVersion === SCANNER_VERSION;
   let cursor = 0;
 
   const nextIndex = (): number | null => {
@@ -419,6 +468,7 @@ export async function scanLibrary(
           coversDir,
           previous,
           knownArtists,
+          reuseUnchanged,
         );
         scannedTracks.push(track);
         if (previous) updated += 1;
@@ -453,6 +503,7 @@ export async function scanLibrary(
   }
   const uniqueTracks = Array.from(tracksMap.values());
   store.replaceTracks(uniqueTracks);
+  store.setSetting(SCANNER_VERSION_KEY, SCANNER_VERSION);
   store.save();
 
   return {

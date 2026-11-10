@@ -10,6 +10,7 @@ import {
   Sparkles,
   UserRound,
 } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 
 import type {
   DownloadRequest,
@@ -256,7 +257,19 @@ export function SearchView() {
   const loadAlbumTracks = useSpotifyCatalogStore(
     (state) => state.loadAlbumTracks,
   );
-  const downloadTasks = useDownloadStore((state) => state.tasks);
+  // Percentage and speed changes belong to the download drawer. Search only
+  // needs the active task set, which changes on status transitions.
+  const pendingDownloads = useDownloadStore(
+    useShallow((state) => {
+      const entries: string[] = [];
+      for (const task of state.tasks) {
+        if (task.status === "queued" || task.status === "downloading") {
+          entries.push(`${task.trackId}\u0000${task.status}`);
+        }
+      }
+      return entries.sort();
+    }),
+  );
 
   const [mode, setMode] = useState<SearchMode>("library");
   const [debounced, setDebounced] = useState(search);
@@ -331,13 +344,15 @@ export function SearchView() {
 
   const pendingById = useMemo(() => {
     const pending = new Map<string, TrackDownloadState>();
-    for (const task of downloadTasks) {
-      if (task.status === "queued" || task.status === "downloading") {
-        pending.set(task.trackId, task.status);
-      }
+    for (const entry of pendingDownloads) {
+      const separator = entry.indexOf("\u0000");
+      pending.set(
+        entry.slice(0, separator),
+        entry.slice(separator + 1) as TrackDownloadState,
+      );
     }
     return pending;
-  }, [downloadTasks]);
+  }, [pendingDownloads]);
 
   const libraryMatches = useMemo(
     () =>

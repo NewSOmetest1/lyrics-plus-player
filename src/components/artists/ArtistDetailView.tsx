@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
+import { useShallow } from "zustand/react/shallow";
 import {
   ArrowLeft,
   Clock3,
@@ -225,7 +226,19 @@ export function ArtistDetailView() {
     (state) => state.loadAlbumTracks,
   );
   const resolveArtist = useSpotifyCatalogStore((state) => state.resolveArtist);
-  const downloadTasks = useDownloadStore((state) => state.tasks);
+  // Percentage and speed changes belong to the download drawer. This view only
+  // needs the active task set, which changes on status transitions.
+  const pendingDownloads = useDownloadStore(
+    useShallow((state) => {
+      const entries: string[] = [];
+      for (const task of state.tasks) {
+        if (task.status === "queued" || task.status === "downloading") {
+          entries.push(`${task.trackId}\u0000${task.status}`);
+        }
+      }
+      return entries.sort();
+    }),
+  );
 
   const artists = useArtistGroups();
   const localArtist = useMemo(() => {
@@ -330,13 +343,15 @@ export function ArtistDetailView() {
 
   const pendingById = useMemo(() => {
     const pending = new Map<string, TrackDownloadState>();
-    for (const task of downloadTasks) {
-      if (task.status === "queued" || task.status === "downloading") {
-        pending.set(task.trackId, task.status);
-      }
+    for (const entry of pendingDownloads) {
+      const separator = entry.indexOf("\u0000");
+      pending.set(
+        entry.slice(0, separator),
+        entry.slice(separator + 1) as TrackDownloadState,
+      );
     }
     return pending;
-  }, [downloadTasks]);
+  }, [pendingDownloads]);
 
   const followed = useMemo(
     () => isArtistFollowed(releaseFeed, artistName),

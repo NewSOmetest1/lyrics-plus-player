@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Square,
 } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 
 import type { DownloadRequest, ReleaseRecord } from "@/types";
 import { backend } from "@/lib/api";
@@ -110,7 +111,19 @@ export function NewReleasesView() {
   const markReleasesSeen = useReleasesStore(
     (state) => state.markReleasesSeen,
   );
-  const tasks = useDownloadStore((state) => state.tasks);
+  // Only a task status change affects this view; percentage/speed updates must
+  // not re-render the whole release grid several times per second.
+  const queuedReleaseIdList = useDownloadStore(
+    useShallow((state) => {
+      const ids = new Set<string>();
+      for (const task of state.tasks) {
+        if (task.status === "queued" || task.status === "downloading") {
+          ids.add(task.releaseId);
+        }
+      }
+      return [...ids].sort();
+    }),
+  );
   const tracks = usePlayerStore((state) => state.tracks);
 
   const [previewId, setPreviewId] = useState<string | null>(null);
@@ -217,15 +230,10 @@ export function NewReleasesView() {
       });
   };
 
-  const queuedReleaseIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const task of tasks) {
-      if (task.status === "queued" || task.status === "downloading") {
-        ids.add(task.releaseId);
-      }
-    }
-    return ids;
-  }, [tasks]);
+  const queuedReleaseIds = useMemo(
+    () => new Set(queuedReleaseIdList),
+    [queuedReleaseIdList],
+  );
 
   const libraryArtists = useMemo(() => {
     const names = new Set<string>();

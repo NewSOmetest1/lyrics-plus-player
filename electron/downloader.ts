@@ -745,8 +745,16 @@ export class DownloadManager {
     const completed = batch.tasks.filter(
       (task) => task.status === "completed" || task.status === "duplicate",
     );
+
+    // Publish the final per-task state before scanning. The library refresh can
+    // take a moment on large collections, and the drawer must not look stuck at
+    // the last download percent while it runs.
+    this.emit();
+
     let scan: ScanSummary | null = null;
-    if (completed.length > 0) {
+    // Duplicates were already in the library, so only a real new file needs a
+    // rescan. The scan itself reuses unchanged records (see scanner.ts).
+    if (completed.some((task) => task.status === "completed")) {
       const roots = new Set<string>();
       const settings = this.options.getSettings();
       roots.add(settings.musicDir);
