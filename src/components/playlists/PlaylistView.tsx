@@ -374,9 +374,10 @@ const SpotifyLikedRow = memo(function SpotifyLikedRow({
           >
             {item.title}
           </button>
-          <p className="mt-0.5 truncate text-[10.5px] text-white/30">
-            {item.artist}
-          </p>
+          <ArtistLinks
+            artistString={item.artist}
+            className="mt-0.5 block truncate text-[10.5px] text-white/30"
+          />
         </div>
       </div>
 
