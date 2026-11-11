@@ -11,7 +11,7 @@ export interface ToastItem {
 
 interface ToastState {
   toasts: ToastItem[];
-  push: (toast: Omit<ToastItem, "id">) => void;
+  push: (toast: Omit<ToastItem, "id">) => number;
   dismiss: (id: number) => void;
 }
 
@@ -23,6 +23,7 @@ export const useToastStore = create<ToastState>((set, get) => ({
     const id = nextId++;
     set((state) => ({ toasts: [...state.toasts.slice(-3), { ...toast, id }] }));
     window.setTimeout(() => get().dismiss(id), 4200);
+    return id;
   },
   dismiss: (id) =>
     set((state) => ({ toasts: state.toasts.filter((toast) => toast.id !== id) })),

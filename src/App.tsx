@@ -40,6 +40,7 @@ import { NewReleasesView } from "@/components/releases/NewReleasesView";
 import { DownloadDrawer } from "@/components/releases/DownloadDrawer";
 import { PlaylistDialog } from "@/components/playlists/PlaylistDialog";
 import { TrackContextMenu } from "@/components/playlists/TrackContextMenu";
+import { CoverContextMenu } from "@/components/covers/CoverContextMenu";
 import { LucidSettingsDialog } from "@/components/settings/LucidSettingsDialog";
 import { NowPlayingView } from "@/components/player/NowPlayingView";
 import { NowPlayingPanel } from "@/components/player/NowPlayingPanel";
@@ -793,6 +794,7 @@ export default function App() {
       <DownloadDrawer />
       <QueuePanel />
       <TrackContextMenu />
+      <CoverContextMenu />
       <PlaylistDialog />
       <LucidSettingsDialog />
       <Toaster />

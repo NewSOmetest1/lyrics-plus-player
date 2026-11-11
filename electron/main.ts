@@ -18,6 +18,8 @@ import {
 
 import { resolveLyrics, testProvider, type TestProviderId } from "./lyrics";
 import * as spotifyAuth from "./spotify-auth.cjs";
+import { downloadCover, openCoversFolder } from "./cover-download";
+import { pruneCoversCache } from "./covers-lru";
 import { registerMediaProtocol, registerMediaScheme } from "./media";
 import {
   destroyDiscordRpc,
@@ -80,6 +82,10 @@ if (process.platform === "linux" && process.env.WAYLAND_DISPLAY) {
 if (process.env.LYRICS_PLUS_DEBUG_PORT) {
   app.commandLine.appendSwitch("remote-debugging-port", process.env.LYRICS_PLUS_DEBUG_PORT);
 }
+
+// Chromium's HTTP cache has no default size limit on desktop and can grow
+// without bound. Cap it before the browser process starts.
+app.commandLine.appendSwitch("disk-cache-size", "268435456");
 
 registerMediaScheme();
 
@@ -182,6 +188,7 @@ async function migrateCoverVariants(): Promise<void> {
 
   if (changed > 0) {
     store.save();
+    pruneCoversSoon();
     // Renderer keeps the old (still valid) URLs until the next library
     // refresh so migration cannot flash artwork mid-playback.
   }
@@ -386,6 +393,12 @@ function musicFolderSnapshot(): MusicFolder[] {
   }));
 }
 
+/** Fire-and-forget cover pruning; never delays scanning or downloads. */
+function pruneCoversSoon(): void {
+  if (!coversDir) return;
+  void pruneCoversCache(coversDir);
+}
+
 function registerIpc(): void {
   ipcMain.handle("get_tracks", () => store.getTracks());
   ipcMain.handle("get_track", (_event, trackId: number) => store.getTrack(trackId) ?? null);
@@ -393,9 +406,16 @@ function registerIpc(): void {
   ipcMain.handle("scan_library", async (event, paths: string[]) => {
     const roots = Array.isArray(paths) && paths.length > 0 ? paths : [defaultMusicDir()];
     const sender = event.sender;
-    return scanLibrary(store, coversDir, roots, (progress: ScanProgress) => {
-      if (!sender.isDestroyed()) sender.send("scan-progress", progress);
-    });
+    const summary = await scanLibrary(
+      store,
+      coversDir,
+      roots,
+      (progress: ScanProgress) => {
+        if (!sender.isDestroyed()) sender.send("scan-progress", progress);
+      },
+    );
+    pruneCoversSoon();
+    return summary;
   });
 
   ipcMain.handle("folders:get", () => musicFolderSnapshot());
@@ -438,6 +458,7 @@ function registerIpc(): void {
         if (!sender.isDestroyed()) sender.send("scan-progress", progress);
       },
     );
+    pruneCoversSoon();
     return {
       cancelled: false,
       alreadyExists: false,
@@ -473,6 +494,7 @@ function registerIpc(): void {
           if (!sender.isDestroyed()) sender.send("scan-progress", progress);
         },
       );
+      pruneCoversSoon();
       return { folders: musicFolderSnapshot(), summary };
     },
   );
@@ -879,6 +901,12 @@ function registerIpc(): void {
     return result.canceled ? null : result.filePaths[0] ?? null;
   });
 
+  ipcMain.handle("covers:download", (event, payload: unknown) =>
+    downloadCover(payload, BrowserWindow.fromWebContents(event.sender)),
+  );
+
+  ipcMain.handle("covers:openFolder", () => openCoversFolder());
+
   ipcMain.handle("window:minimize", (event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize();
   });
@@ -949,6 +977,7 @@ app.whenReady().then(async () => {
     onComplete: async (payload) => {
       const feed = releases.refreshDownloadedStatus();
       const status = await spotifyStatusPayload();
+      pruneCoversSoon();
       send("download:complete", {
         ...payload,
         feed: { ...feed, authenticated: status.authenticated },
@@ -960,6 +989,9 @@ app.whenReady().then(async () => {
   perfMark("backfill-done");
 
   registerMediaProtocol(coversDir);
+  // Prune old artwork after startup has settled. Covers are content-addressed
+  // and shared between tracks, so a simple LRU pass is safe at any time.
+  setTimeout(pruneCoversSoon, 5000);
   registerIpc();
   perfMark("ipc-ready");
   initDiscordRpc(

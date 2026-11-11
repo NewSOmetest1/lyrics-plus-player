@@ -3,6 +3,10 @@ export type LyricsMode = (typeof LYRICS_MODES)[number];
 
 export type {
   ArtistSource,
+  CoverDownloadRequest,
+  CoverDownloadResult,
+  CoverQuality,
+  CoverTarget,
   DownloadCompleteEvent,
   DownloadRequest,
   DownloadSnapshot,

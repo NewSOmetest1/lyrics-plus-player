@@ -413,6 +413,15 @@ export function AlbumDetailView() {
             >
               <SpotifyArtwork
                 url={album.coverUrl}
+                cover={{
+                  artist: album.artist,
+                  album: album.title,
+                  year: album.releaseDate
+                    ? album.releaseDate.slice(0, 4)
+                    : null,
+                  spotifyImageUrl: album.coverUrl,
+                  spotifyAlbumId: album.id,
+                }}
                 rounded="rounded-2xl"
                 className="aspect-square w-40 shadow-[0_24px_60px_-18px_rgba(0,0,0,.85)] sm:w-48"
               />

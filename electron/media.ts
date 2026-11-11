@@ -4,6 +4,7 @@ import { Readable } from "node:stream";
 
 import { protocol } from "electron";
 
+import { touchCoverAccess } from "./covers-lru";
 import { isAudioFile } from "./scanner";
 
 const MIME_TYPES: Record<string, string> = {
@@ -70,6 +71,7 @@ async function serveFile(
   filePath: string,
   request: Request,
   cacheControl = "no-cache",
+  onServed?: (filePath: string) => void,
 ): Promise<Response> {
   let stat;
   try {
@@ -78,6 +80,8 @@ async function serveFile(
     return new Response("Not found", { status: 404 });
   }
   if (!stat.isFile()) return new Response("Not found", { status: 404 });
+
+  onServed?.(filePath);
 
   const total = stat.size;
   const headers: Record<string, string> = {
@@ -130,6 +134,8 @@ export function registerMediaProtocol(coversDir: string): void {
         target,
         request,
         "public, max-age=31536000, immutable",
+        // LRU bookkeeping: frequently played artwork must survive pruning.
+        touchCoverAccess,
       );
     }
 

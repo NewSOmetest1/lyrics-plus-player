@@ -180,6 +180,12 @@ const SearchTrackRow = memo(function SearchTrackRow({
       <div className="flex min-w-0 items-center gap-2.5">
         <SpotifyArtwork
           url={track.coverUrl}
+          cover={{
+            artist: track.artist,
+            album: track.album,
+            year: null,
+            spotifyImageUrl: track.coverUrl,
+          }}
           rounded="rounded-md"
           className="h-8 w-8"
         />

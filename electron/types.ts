@@ -388,3 +388,38 @@ export interface DownloadCompleteEvent {
   scan: ScanSummary | null;
   feed: ReleaseFeed;
 }
+
+/** Quality preset offered by the artwork context menu. */
+export type CoverQuality = "max" | "spotify" | "deezer" | "640";
+
+export interface CoverTarget {
+  artist: string;
+  album: string;
+  year?: string | null;
+  /** Current Spotify image URL, used for the 2000px CDN rewrite. */
+  spotifyImageUrl?: string | null;
+  spotifyAlbumId?: string | null;
+  /**
+   * Local cached artwork (`media://covers/?file=...`) used as a visual
+   * reference so a loose search match cannot replace the album's art.
+   */
+  referenceCoverUrl?: string | null;
+}
+
+export interface CoverDownloadRequest {
+  target: CoverTarget;
+  quality: CoverQuality;
+  /** Ask for a destination through the native save dialog. */
+  saveAs?: boolean;
+}
+
+export interface CoverDownloadResult {
+  canceled: boolean;
+  path: string | null;
+  displayPath: string | null;
+  folder: string;
+  width: number;
+  height: number;
+  source: string;
+  bytes: number;
+}

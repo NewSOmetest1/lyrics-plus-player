@@ -59,6 +59,7 @@ export const ArtistAvatar = memo(function ArtistAvatar({
         height={512}
         className={className}
         iconClassName={iconClassName}
+        coverMenu={false}
       />
     );
   }

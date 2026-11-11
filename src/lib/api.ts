@@ -1,4 +1,6 @@
 import type {
+  CoverDownloadRequest,
+  CoverDownloadResult,
   DiscordPresence,
   DownloadCompleteEvent,
   DownloadRequest,
@@ -1466,6 +1468,23 @@ export const backend = {
   async clearLyricsCache(trackId: number): Promise<void> {
     if (!isElectron) return;
     await electronApi().invoke<void>("clear_lyrics_cache", trackId);
+  },
+
+  async downloadCover(
+    request: CoverDownloadRequest,
+  ): Promise<CoverDownloadResult> {
+    if (!isElectron) {
+      throw new Error("Cover download is only available in the desktop app.");
+    }
+    return electronApi().invoke<CoverDownloadResult>(
+      "covers:download",
+      request,
+    );
+  },
+
+  async openCoverFolder(): Promise<string> {
+    if (!isElectron) return "";
+    return electronApi().invoke<string>("covers:openFolder");
   },
 };
 

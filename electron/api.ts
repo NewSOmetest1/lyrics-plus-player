@@ -25,6 +25,10 @@ export type {
 };
 export type {
   ArtistSource,
+  CoverDownloadRequest,
+  CoverDownloadResult,
+  CoverQuality,
+  CoverTarget,
   DownloadCompleteEvent,
   DownloadRequest,
   DownloadSnapshot,

@@ -5,6 +5,7 @@ import { coverUrl } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { paletteFromHash } from "@/lib/colors";
 import { initials } from "@/lib/format";
+import { useCoverMenuStore } from "@/store/coverMenuStore";
 
 interface CoverArtProps {
   track: Track | null;
@@ -12,6 +13,8 @@ interface CoverArtProps {
   className?: string;
   iconClassName?: string;
   showInitials?: boolean;
+  /** Open the artwork menu on right click. */
+  coverMenu?: boolean;
   /** Intrinsic dimensions for the <img>; CSS controls the rendered size. */
   width?: number;
   height?: number;
@@ -23,11 +26,13 @@ export function CoverArt({
   className,
   iconClassName,
   showInitials = true,
+  coverMenu = true,
   width,
   height,
 }: CoverArtProps) {
   const url = useMemo(() => coverUrl(track, full), [track, full]);
   const [failed, setFailed] = useState(false);
+  const openCoverMenu = useCoverMenuStore((state) => state.openMenu);
 
   useEffect(() => {
     setFailed(false);
@@ -41,6 +46,31 @@ export function CoverArt({
 
   return (
     <div
+      onContextMenu={
+        coverMenu && track
+          ? (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              const remoteCover =
+                track.coverFullPath?.startsWith("https://i.scdn.co/") ||
+                track.coverPath?.startsWith("https://i.scdn.co/")
+                  ? track.coverFullPath ?? track.coverPath
+                  : null;
+              openCoverMenu(
+                {
+                  artist: track.albumArtist?.trim() || track.artist,
+                  album: track.album,
+                  year: track.year ? String(track.year) : null,
+                  spotifyImageUrl: remoteCover ?? null,
+                  referenceCoverUrl:
+                    track.coverFullPath ?? track.coverPath ?? null,
+                },
+                event.clientX,
+                event.clientY,
+              );
+            }
+          : undefined
+      }
       className={cn(
         "relative isolate overflow-hidden bg-white/[0.04]",
         className,

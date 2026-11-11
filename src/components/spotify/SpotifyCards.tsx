@@ -1,23 +1,36 @@
 import { useEffect, useState } from "react";
 import { Check, Download, Loader2, Music2 } from "lucide-react";
 
-import type { SpotifyAlbumSummary, Track } from "@/types";
+import type { CoverTarget, SpotifyAlbumSummary, Track } from "@/types";
 import { cn } from "@/lib/cn";
 import { localAlbumStats } from "@/lib/spotifyMatch";
+import { useCoverMenuStore } from "@/store/coverMenuStore";
 
 export function SpotifyArtwork({
   url,
   className,
   rounded = "rounded-xl",
+  cover,
 }: {
   url: string | null;
   className?: string;
   rounded?: string;
+  cover?: CoverTarget | null;
 }) {
   const [failed, setFailed] = useState(false);
+  const openCoverMenu = useCoverMenuStore((state) => state.openMenu);
   useEffect(() => setFailed(false), [url]);
   return (
     <div
+      onContextMenu={
+        cover
+          ? (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              openCoverMenu(cover, event.clientX, event.clientY);
+            }
+          : undefined
+      }
       className={cn(
         "relative isolate shrink-0 overflow-hidden bg-white/[0.04]",
         rounded,
@@ -93,6 +106,13 @@ export function SpotifyAlbumCard({
       <div className="relative">
         <SpotifyArtwork
           url={album.coverUrl}
+          cover={{
+            artist: album.artist,
+            album: album.title,
+            year: album.releaseDate ? album.releaseDate.slice(0, 4) : null,
+            spotifyImageUrl: album.coverUrl,
+            spotifyAlbumId: album.id,
+          }}
           className="aspect-square w-full shadow-[0_18px_40px_-22px_rgba(0,0,0,.9)]"
         />
         {preRelease && (

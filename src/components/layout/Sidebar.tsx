@@ -70,6 +70,7 @@ function AlbumCover({ track, size }: { track: Track; size: number }) {
         track={track}
         className="h-full w-full rounded-lg"
         iconClassName="h-4 w-4"
+        coverMenu={false}
       />
     </span>
   );

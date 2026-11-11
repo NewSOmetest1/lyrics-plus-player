@@ -56,6 +56,7 @@ export function PlaylistCover({
                 className="h-full w-full min-h-0 rounded-none"
                 iconClassName="h-2.5 w-2.5"
                 showInitials={false}
+                coverMenu={false}
               />
             ) : (
               <span

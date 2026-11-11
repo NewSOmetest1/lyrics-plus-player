@@ -182,6 +182,12 @@ const PopularTrackRow = memo(function PopularTrackRow({
       <div className="flex min-w-0 items-center gap-2.5">
         <SpotifyArtwork
           url={track.coverUrl}
+          cover={{
+            artist: track.artist,
+            album: track.album,
+            year: null,
+            spotifyImageUrl: track.coverUrl,
+          }}
           rounded="rounded-md"
           className="h-8 w-8"
         />
@@ -624,6 +630,7 @@ export function ArtistDetailView() {
                   track={localArtist.coverTrack}
                   className="aspect-square w-36 rounded-full shadow-[0_24px_60px_-18px_rgba(0,0,0,.85)] sm:w-44"
                   iconClassName="h-10 w-10"
+                  coverMenu={false}
                 />
               ) : (
                 <div className="flex aspect-square w-36 items-center justify-center rounded-full bg-gradient-to-br from-[#450af5]/60 to-[#8e8ee8]/40 shadow-[0_24px_60px_-18px_rgba(0,0,0,.85)] sm:w-44">
