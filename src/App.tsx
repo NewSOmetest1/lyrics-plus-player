@@ -285,6 +285,24 @@ function isTypingTarget(target: EventTarget | null): boolean {
   );
 }
 
+/**
+ * Layout-independent shortcut identity. Latin layouts keep their event.key
+ * letter (so Dvorak/AZERTY mnemonics still work), while non-Latin layouts fall
+ * back to the physical code (Russian "а" on KeyF still triggers F). Symbol keys
+ * always use the physical code because Russian layouts remap punctuation.
+ */
+function shortcutId(event: KeyboardEvent): string {
+  if (event.code.startsWith("Key")) {
+    const key = event.key.toLowerCase();
+    return /^[a-z]$/.test(key) ? key : event.code.slice(3).toLowerCase();
+  }
+  if (event.code === "Slash") return "/";
+  if (event.code === "BracketLeft") return "[";
+  if (event.code === "BracketRight") return "]";
+  if (event.code === "Space") return " ";
+  return event.key;
+}
+
 export default function App() {
   useRenderProbe("App");
   const view = usePlayerStore((state) => state.view);
@@ -549,7 +567,7 @@ export default function App() {
       if (
         (event.ctrlKey || event.metaKey) &&
         !event.altKey &&
-        event.key.toLowerCase() === "f"
+        shortcutId(event) === "f"
       ) {
         if (store.view === "player" || store.view === "karaoke") {
           event.preventDefault();
@@ -562,8 +580,9 @@ export default function App() {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
 
       const step = event.shiftKey ? 15_000 : 5_000;
+      const shortcut = shortcutId(event);
 
-      switch (event.key) {
+      switch (shortcut) {
         case " ":
           event.preventDefault();
           void store.togglePlay();
@@ -585,27 +604,21 @@ export default function App() {
           store.setVolume(store.volume - 0.05);
           break;
         case "n":
-        case "N":
           void store.next();
           break;
         case "p":
-        case "P":
           void store.prev();
           break;
         case "m":
-        case "M":
           store.toggleMute();
           break;
         case "f":
-        case "F":
           store.toggleFocus();
           break;
         case "q":
-        case "Q":
           store.toggleQueue();
           break;
         case "l":
-        case "L":
           store.setView(store.view === "library" ? "player" : "library");
           break;
         case "/":
@@ -622,7 +635,7 @@ export default function App() {
             break;
           }
           event.preventDefault();
-          const delta = event.key === "[" ? -TRACK_DELAY_STEP : TRACK_DELAY_STEP;
+          const delta = shortcut === "[" ? -TRACK_DELAY_STEP : TRACK_DELAY_STEP;
           const nextDelay = useTrackDelayStore
             .getState()
             .adjustDelay(store.currentTrack.path, delta);
