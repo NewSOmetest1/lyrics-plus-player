@@ -6,6 +6,7 @@ import {
   Maximize2,
   Mic2,
   Minimize2,
+  MousePointerClick,
   RefreshCw,
   Sparkles,
   TriangleAlert,
@@ -203,7 +204,12 @@ export function NowPlayingView() {
           play / pause
         </span>
         <span className="text-white/10">·</span>
-        <span>Click a line to jump</span>
+        <span className="inline-flex items-center gap-1.5">
+          <kbd className="inline-flex h-[17px] items-center justify-center rounded border border-white/10 bg-white/[0.04] px-1 text-white/35">
+            <MousePointerClick className="h-2.5 w-2.5" aria-hidden="true" />
+          </kbd>
+          Click a line to jump
+        </span>
         <span className="text-white/10">·</span>
         <span>
           <kbd className="rounded border border-white/10 bg-white/[0.04] px-1 py-0.5 font-sans text-[9px] text-white/35">
