@@ -1,5 +1,9 @@
 import { getSpotifyAccessToken, readSpotifyCookies } from "./spotify-auth.cjs";
-import { SpotifyWebClient, type SpotifyWebDeps } from "./spotify-web";
+import {
+  SpotifyWebClient,
+  type SpotifyWebDeps,
+  type SpotifyWebRelease,
+} from "./spotify-web";
 import type { ArtistCacheStore } from "./artist-cache";
 import type { LibraryStore } from "./store";
 import type {
@@ -296,6 +300,25 @@ function normalizePartnerAlbum(
     totalTracks:
       entity?.tracksV2?.totalCount ?? entity?.tracks?.totalCount ?? 0,
     type: (entity?.type ?? "ALBUM").toUpperCase(),
+  };
+}
+
+function webReleaseToAlbum(
+  release: SpotifyWebRelease,
+  fallbackArtist: string,
+): SpotifyAlbumSummary {
+  const artist = fallbackArtist.trim();
+  return {
+    id: release.id,
+    title: release.title,
+    artist,
+    artists: artist ? [artist] : [],
+    releaseDate: release.releaseDate,
+    releaseDatePrecision: release.releaseDatePrecision,
+    coverUrl: release.coverUrl,
+    spotifyUrl: release.spotifyUrl,
+    totalTracks: release.totalTracks,
+    type: release.type.toUpperCase(),
   };
 }
 
@@ -746,6 +769,7 @@ export class SpotifyCatalogService {
     let profile: SpotifyArtistSummary | null = null;
     let topTracks: SpotifyCatalogTrack[] = [];
     let albums: SpotifyAlbumSummary[] = [];
+    let discography: SpotifyWebRelease[] = [];
 
     if (artistId) {
       const [profileResult, topResult, albumsResult] = await Promise.allSettled([
@@ -777,24 +801,42 @@ export class SpotifyCatalogService {
     }
 
     // The public API is usually 429 for web-player tokens. Reuse the web
-    // player's own artist overview query for profile, top tracks and releases.
-    if (artistId && (!profile || topTracks.length === 0 || albums.length === 0)) {
+    // player's own artist overview query for profile and top tracks, and walk
+    // the paginated discography query so every release is listed. The overview
+    // only embeds a short preview (about ten albums and ten singles).
+    if (artistId) {
       try {
         const client = await this.partner();
-        const data = await client.graphql<PartnerArtistData>(
-          "queryArtistOverview",
-          {
-            uri: `spotify:artist:${artistId}`,
-            locale: "",
-            preReleaseV2: true,
-            includeMusicVideoPreviews: false,
-          },
-          ARTIST_OVERVIEW_HASH,
-        );
-        const overview = this.partnerOverview(data);
-        if (!profile) profile = overview.artist;
-        if (topTracks.length === 0) topTracks = overview.topTracks.slice(0, 10);
-        if (albums.length === 0) albums = overview.albums;
+        try {
+          const data = await client.graphql<PartnerArtistData>(
+            "queryArtistOverview",
+            {
+              uri: `spotify:artist:${artistId}`,
+              locale: "",
+              preReleaseV2: true,
+              includeMusicVideoPreviews: false,
+            },
+            ARTIST_OVERVIEW_HASH,
+          );
+          const overview = this.partnerOverview(data);
+          if (!profile) profile = overview.artist;
+          if (topTracks.length === 0) {
+            topTracks = overview.topTracks.slice(0, 10);
+          }
+          if (albums.length === 0) albums = overview.albums;
+        } catch (error) {
+          warnings.push(
+            `Spotify GraphQL artist failed: ${errorMessage(error)}`,
+          );
+        }
+
+        try {
+          discography = await client.artistDiscography(artistId);
+        } catch (error) {
+          warnings.push(
+            `Spotify GraphQL discography failed: ${errorMessage(error)}`,
+          );
+        }
       } catch (error) {
         warnings.push(`Spotify GraphQL artist failed: ${errorMessage(error)}`);
       }
@@ -822,27 +864,24 @@ export class SpotifyCatalogService {
       );
     }
 
-    let latestRelease: SpotifyAlbumSummary | null = null;
-    if (artistId) {
+    if (discography.length > 0) {
+      albums = discography.map((release) =>
+        webReleaseToAlbum(release, profile.name),
+      );
+    }
+
+    let latestRelease: SpotifyAlbumSummary | null = discography[0]
+      ? webReleaseToAlbum(discography[0], profile.name)
+      : null;
+    if (!latestRelease && artistId) {
       try {
-        // The overview only gives a year for many releases, which is not
-        // enough to identify the actual newest one. Spotify's DATE_DESC
-        // discography query returns the true latest release.
+        // Fall back to the dedicated DATE_DESC query when the full
+        // discography request failed. It returns the true latest release,
+        // unlike the overview's year-only dates.
         const client = await this.partner();
         const [newest] = await client.artistReleases(artistId, 1);
         if (newest) {
-          latestRelease = {
-            id: newest.id,
-            title: newest.title,
-            artist: profile.name,
-            artists: [profile.name],
-            releaseDate: newest.releaseDate,
-            releaseDatePrecision: newest.releaseDatePrecision,
-            coverUrl: newest.coverUrl,
-            spotifyUrl: newest.spotifyUrl,
-            totalTracks: newest.totalTracks,
-            type: newest.type.toUpperCase(),
-          };
+          latestRelease = webReleaseToAlbum(newest, profile.name);
         }
       } catch (error) {
         warnings.push(

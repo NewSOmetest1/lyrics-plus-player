@@ -84,6 +84,17 @@ interface PartnerRelease {
   tracks?: { totalCount?: number };
 }
 
+interface PartnerDiscographyData {
+  artistUnion?: {
+    discography?: {
+      all?: {
+        totalCount?: number;
+        items?: Array<{ releases?: { items?: PartnerRelease[] } }>;
+      };
+    };
+  };
+}
+
 interface PartnerTrack {
   uri?: string;
   name?: string;
@@ -202,6 +213,30 @@ function releaseDateFromPartner(
     };
   }
   return { releaseDate: "", releaseDatePrecision: "year" };
+}
+
+function releasesFromDiscography(
+  data: PartnerDiscographyData,
+): SpotifyWebRelease[] {
+  const releases: SpotifyWebRelease[] = [];
+  for (const group of data.artistUnion?.discography?.all?.items ?? []) {
+    for (const release of group.releases?.items ?? []) {
+      const id = release.id ?? albumIdFromUri(release.uri);
+      const title = release.name?.trim();
+      if (!id || !title) continue;
+      const date = releaseDateFromPartner(release);
+      releases.push({
+        id,
+        title,
+        type: release.type ?? "ALBUM",
+        ...date,
+        coverUrl: pickImage(release.coverArt?.sources),
+        spotifyUrl: `https://open.spotify.com/album/${id}`,
+        totalTracks: release.tracks?.totalCount ?? 0,
+      });
+    }
+  }
+  return releases;
 }
 
 /**
@@ -588,43 +623,63 @@ export class SpotifyWebClient {
   async artistReleases(
     artistId: string,
     limit = 6,
+    offset = 0,
   ): Promise<SpotifyWebRelease[]> {
-    const data = await this.query<{
-      artistUnion?: {
-        discography?: {
-          all?: { items?: Array<{ releases?: { items?: PartnerRelease[] } }> };
-        };
-      };
-    }>(
+    const data = await this.query<PartnerDiscographyData>(
       "queryArtistDiscographyAll",
       {
         uri: `spotify:artist:${artistId}`,
-        offset: 0,
+        offset,
         limit,
         order: "DATE_DESC",
       },
       HASHES.queryArtistDiscographyAll,
     );
 
-    const releases: SpotifyWebRelease[] = [];
-    for (const group of data.artistUnion?.discography?.all?.items ?? []) {
-      for (const release of group.releases?.items ?? []) {
-        const id = release.id ?? albumIdFromUri(release.uri);
-        const title = release.name?.trim();
-        if (!id || !title) continue;
-        const date = releaseDateFromPartner(release);
-        releases.push({
-          id,
-          title,
-          type: release.type ?? "ALBUM",
-          ...date,
-          coverUrl: pickImage(release.coverArt?.sources),
-          spotifyUrl: `https://open.spotify.com/album/${id}`,
-          totalTracks: release.tracks?.totalCount ?? 0,
-        });
+    return releasesFromDiscography(data);
+  }
+
+  /**
+   * The artist overview query only embeds a short preview of the discography
+   * (roughly ten albums and ten singles). The dedicated DATE_DESC query is
+   * paginated, so walk every page to keep artist pages complete.
+   */
+  async artistDiscography(
+    artistId: string,
+    pageSize = 50,
+  ): Promise<SpotifyWebRelease[]> {
+    const byId = new Map<string, SpotifyWebRelease>();
+    let offset = 0;
+
+    for (let page = 0; page < 40; page += 1) {
+      const data = await this.query<PartnerDiscographyData>(
+        "queryArtistDiscographyAll",
+        {
+          uri: `spotify:artist:${artistId}`,
+          offset,
+          limit: pageSize,
+          order: "DATE_DESC",
+        },
+        HASHES.queryArtistDiscographyAll,
+      );
+
+      const groups = data.artistUnion?.discography?.all?.items ?? [];
+      const total = data.artistUnion?.discography?.all?.totalCount;
+      let added = 0;
+      for (const release of releasesFromDiscography(data)) {
+        if (byId.has(release.id)) continue;
+        byId.set(release.id, release);
+        added += 1;
       }
+
+      // Stop when the catalog is exhausted, or when Spotify ignores the
+      // offset and repeats a page (no new release ids).
+      if (groups.length === 0 || added === 0) break;
+      offset += groups.length;
+      if (typeof total === "number" && offset >= total) break;
     }
-    return releases;
+
+    return [...byId.values()];
   }
 
   async albumTracks(
