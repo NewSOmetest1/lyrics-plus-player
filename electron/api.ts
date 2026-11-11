@@ -7,6 +7,7 @@ import type {
   Playlist,
   ScanProgress,
   ScanSummary,
+  TrackFileDeleteResult,
   TrackRecord,
 } from "./types";
 
@@ -19,6 +20,7 @@ export type {
   Playlist,
   ScanProgress,
   ScanSummary,
+  TrackFileDeleteResult,
   TrackRecord,
 };
 export type {
@@ -39,6 +41,7 @@ export type {
   SpotifyLikedTrack,
   SpotifyLikedTrackInput,
   SpotifyProfile,
+  SpotifyArtistCacheEntry,
   SpotifyArtistSummary,
   SpotifyAlbumSummary,
   SpotifyCatalogTrack,

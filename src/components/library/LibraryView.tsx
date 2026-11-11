@@ -378,7 +378,7 @@ export function LibraryView() {
 
       <div
         ref={scrollRef}
-        className="no-scrollbar min-h-0 flex-1 overflow-y-auto"
+        className="min-h-0 flex-1 overflow-y-auto"
       >
         {librarySection === "artists" ? (
           <ArtistGrid query={search} scrollRef={scrollRef} />
@@ -618,7 +618,7 @@ export function LibraryView() {
                 </span>
               </div>
 
-              <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto p-1">
+              <div className="min-h-0 flex-1 overflow-y-auto p-1">
                 {TRACK_SORT_MODES.map((mode) => {
                   const selected = sortState.mode === mode;
                   return (

@@ -312,7 +312,7 @@ export function LyricsViewer({ mode }: LyricsViewerProps) {
     return (
       <div
         ref={containerRef}
-        className="no-scrollbar h-full overflow-y-auto px-8 sm:px-12"
+        className="h-full overflow-y-auto px-8 sm:px-12"
         style={{
           ...themeVars,
           opacity,
@@ -357,7 +357,7 @@ export function LyricsViewer({ mode }: LyricsViewerProps) {
     <div className="relative h-full">
       <div
         ref={containerRef}
-        className="lyrics-scroll no-scrollbar relative h-full overflow-y-auto overflow-x-hidden"
+        className="lyrics-scroll relative h-full overflow-y-auto overflow-x-hidden"
         style={{
           ...themeVars,
           opacity,
@@ -475,7 +475,7 @@ export function LyricsViewer({ mode }: LyricsViewerProps) {
             </div>
 
             {query.trim() ? (
-              <div className="no-scrollbar max-h-[min(42vh,320px)] overflow-y-auto border-t border-white/[0.06] p-1.5">
+              <div className="max-h-[min(42vh,320px)] overflow-y-auto border-t border-white/[0.06] p-1.5">
                 {searchResults.length > 0 ? (
                   searchResults.slice(0, 40).map(({ line, index }, resultIndex) => (
                     <button

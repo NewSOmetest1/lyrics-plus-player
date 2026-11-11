@@ -724,7 +724,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               ))}
             </div>
 
-            <div className="no-scrollbar flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto">
               {tab === "display" ? (
                 <>
                   <Section

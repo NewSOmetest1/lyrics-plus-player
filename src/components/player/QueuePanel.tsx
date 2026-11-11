@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn";
 import { formatTime } from "@/lib/format";
 import { CoverArt } from "@/components/ui/CoverArt";
 import { ArtistLinks } from "@/components/artists/ArtistLinks";
+import { openLocalTrackAlbum } from "@/lib/navigationTargets";
 import { EqualizerBars } from "@/components/ui/EqualizerBars";
 
 const EASE = [0.2, 0, 0, 1] as const;
@@ -91,7 +92,7 @@ export function QueuePanel() {
               </div>
             )}
 
-            <div className="no-scrollbar flex-1 overflow-y-auto p-2">
+            <div className="flex-1 overflow-y-auto p-2">
               {tracks.map((track, index) => {
                 const active = track.id === current?.id;
                 return (
@@ -134,10 +135,14 @@ export function QueuePanel() {
                         type="button"
                         onClick={(event) => {
                           event.stopPropagation();
-                          void playTrack(track, 0, tracks);
+                          void openLocalTrackAlbum(track, () => {
+                            void playTrack(track, 0, tracks);
+                          });
                         }}
+                        onDoubleClick={(event) => event.stopPropagation()}
+                        title={track.title}
                         className={cn(
-                          "block max-w-full truncate text-left text-[11px] font-medium",
+                          "block max-w-full truncate text-left text-[11px] font-medium transition hover:underline hover:decoration-white/20 hover:underline-offset-2",
                           active ? "text-accent" : "text-white/65 group-hover:text-white",
                         )}
                       >

@@ -1,8 +1,6 @@
 import { getSpotifyAccessToken, readSpotifyCookies } from "./spotify-auth.cjs";
-import {
-  SpotifyWebClient,
-  type SpotifyWebDeps,
-} from "./spotify-web";
+import { SpotifyWebClient, type SpotifyWebDeps } from "./spotify-web";
+import type { ArtistCacheStore } from "./artist-cache";
 import type { LibraryStore } from "./store";
 import type {
   SpotifyAlbumCatalog,
@@ -384,7 +382,14 @@ export class SpotifyCatalogService {
   constructor(
     private readonly deps: SpotifyWebDeps,
     private readonly store: LibraryStore,
+    private readonly artistCache?: ArtistCacheStore,
   ) {}
+
+  private rememberArtists(artists: Array<SpotifyArtistSummary | null>): void {
+    for (const artist of artists) {
+      this.artistCache?.remember(artist);
+    }
+  }
 
   private cached<T>(key: string): T | null {
     const entry = this.cache.get(key) as Cached<T> | undefined;
@@ -675,6 +680,7 @@ export class SpotifyCatalogService {
           .filter((track): track is SpotifyCatalogTrack => Boolean(track)),
         warnings,
       };
+      this.rememberArtists(result.artists);
       return this.remember(cacheKey, result);
     } catch (error) {
       warnings.push(errorMessage(error));
@@ -689,6 +695,7 @@ export class SpotifyCatalogService {
           !/^Spotify Web API 429/.test(warning) &&
           !/API rate limit exceeded/i.test(warning),
       );
+      this.rememberArtists(fallback.artists);
       return this.remember(cacheKey, { ...fallback, warnings: visible });
     }
     throw new Error(warnings.join(" ") || "Spotify search is unavailable.");
@@ -815,6 +822,35 @@ export class SpotifyCatalogService {
       );
     }
 
+    let latestRelease: SpotifyAlbumSummary | null = null;
+    if (artistId) {
+      try {
+        // The overview only gives a year for many releases, which is not
+        // enough to identify the actual newest one. Spotify's DATE_DESC
+        // discography query returns the true latest release.
+        const client = await this.partner();
+        const [newest] = await client.artistReleases(artistId, 1);
+        if (newest) {
+          latestRelease = {
+            id: newest.id,
+            title: newest.title,
+            artist: profile.name,
+            artists: [profile.name],
+            releaseDate: newest.releaseDate,
+            releaseDatePrecision: newest.releaseDatePrecision,
+            coverUrl: newest.coverUrl,
+            spotifyUrl: newest.spotifyUrl,
+            totalTracks: newest.totalTracks,
+            type: newest.type.toUpperCase(),
+          };
+        }
+      } catch (error) {
+        warnings.push(
+          `Spotify GraphQL latest release failed: ${errorMessage(error)}`,
+        );
+      }
+    }
+
     const uniqueTracks = new Map<string, SpotifyCatalogTrack>();
     for (const track of topTracks) {
       if (!uniqueTracks.has(track.id)) uniqueTracks.set(track.id, track);
@@ -823,13 +859,38 @@ export class SpotifyCatalogService {
     for (const album of albums) {
       if (!uniqueAlbums.has(album.id)) uniqueAlbums.set(album.id, album);
     }
+    if (latestRelease) {
+      const existing = uniqueAlbums.get(latestRelease.id);
+      uniqueAlbums.set(
+        latestRelease.id,
+        existing
+          ? {
+              ...existing,
+              releaseDate: latestRelease.releaseDate,
+              releaseDatePrecision: latestRelease.releaseDatePrecision,
+            }
+          : latestRelease,
+      );
+    }
+    const albumList = [...uniqueAlbums.values()];
+    if (latestRelease) {
+      const index = albumList.findIndex(
+        (album) => album.id === latestRelease?.id,
+      );
+      if (index > 0) {
+        const [newest] = albumList.splice(index, 1);
+        albumList.unshift(newest);
+      }
+    }
 
     const result: SpotifyArtistCatalog = {
       artist: profile,
       topTracks: [...uniqueTracks.values()].slice(0, 10),
-      albums: [...uniqueAlbums.values()],
+      albums: albumList,
+      latestRelease,
       warnings: [...new Set(warnings)],
     };
+    this.artistCache?.remember(profile);
     return this.remember(cacheKey, result);
   }
 

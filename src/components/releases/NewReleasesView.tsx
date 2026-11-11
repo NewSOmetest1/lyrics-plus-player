@@ -311,7 +311,7 @@ export function NewReleasesView() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-6 pb-8 pt-5 lg:px-8">
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-8 pt-5 lg:px-8">
         <header className="relative flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
             <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.22em] text-accent/80">

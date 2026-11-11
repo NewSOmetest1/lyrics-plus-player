@@ -108,6 +108,7 @@ export function defaultM3UFileName(name: string): string {
 
 export class PlaylistStore {
   private data: PlaylistData;
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly file: string) {
     mkdirSync(path.dirname(file), { recursive: true });
@@ -150,6 +151,30 @@ export class PlaylistStore {
   }
 
   save(): void {
+    if (this.saveTimer !== null) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
+    this.write();
+  }
+
+  /** Coalesce rapid heart clicks into one playlists.json write. */
+  saveSoon(delayMs = 400): void {
+    if (this.saveTimer !== null) clearTimeout(this.saveTimer);
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      this.write();
+    }, delayMs);
+  }
+
+  flush(): void {
+    if (this.saveTimer === null) return;
+    clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+    this.write();
+  }
+
+  private write(): void {
     const tmp = `${this.file}.tmp`;
     writeFileSync(tmp, JSON.stringify(this.data, null, 2));
     renameSync(tmp, this.file);
@@ -291,5 +316,36 @@ export class PlaylistStore {
     playlist.updatedAt = Date.now();
     this.save();
     return { playlist: structuredClone(playlist), removed: true };
+  }
+
+  /**
+   * Likes are applied to memory immediately and written with a short debounce.
+   * The renderer already updated its optimistic state, so this call only has to
+   * keep Liked Songs durable without blocking the heart animation.
+   */
+  setLikedTrack(
+    trackPath: string,
+    liked: boolean,
+  ): { playlist: Playlist; changed: boolean } {
+    const trimmed = trackPath.trim();
+    if (!trimmed) throw new Error("Track path cannot be empty");
+    const playlist = this.get(LIKED_PLAYLIST_ID) ?? this.ensureLiked();
+    const target = normalizePath(trimmed);
+    const exists = playlist.trackPaths.some(
+      (item) => normalizePath(item) === target,
+    );
+    if (liked === exists) {
+      return { playlist: structuredClone(playlist), changed: false };
+    }
+    if (liked) {
+      playlist.trackPaths.unshift(target);
+    } else {
+      playlist.trackPaths = playlist.trackPaths.filter(
+        (item) => normalizePath(item) !== target,
+      );
+    }
+    playlist.updatedAt = Date.now();
+    this.saveSoon();
+    return { playlist: structuredClone(playlist), changed: true };
   }
 }

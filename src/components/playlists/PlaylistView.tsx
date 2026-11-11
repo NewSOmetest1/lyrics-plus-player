@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 
 import type { DownloadRequest, Playlist, SpotifyLikedTrack, Track } from "@/types";
-import { LIKED_PLAYLIST_ID, isLikedPlaylist } from "@/types";
+import { isLikedPlaylist } from "@/types";
 import { cn } from "@/lib/cn";
 import { formatCount, formatTime, formatTimeLong } from "@/lib/format";
 import { coverPaletteUrl } from "@/lib/api";
@@ -32,10 +32,12 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { useSpotifyLikedStore } from "@/store/spotifyLikedStore";
 import { useTrackMenuStore } from "@/store/contextMenuStore";
 import { useToastStore } from "@/store/toastStore";
+import { useTrackSorting, type TrackSortAccessors } from "@/hooks/useTrackSorting";
 import {
-  useTrackSorting,
-  type TrackSortAccessors,
-} from "@/hooks/useTrackSorting";
+  openArtistForAlbum,
+  openLikedTrackAlbum,
+  openLocalTrackAlbum,
+} from "@/lib/navigationTargets";
 import { CoverArt } from "@/components/ui/CoverArt";
 import { EqualizerBars } from "@/components/ui/EqualizerBars";
 import { ArtistLinks } from "@/components/artists/ArtistLinks";
@@ -133,14 +135,21 @@ const PlaylistTrackRow = memo(function PlaylistTrackRow({
           showInitials={false}
         />
         <div className="min-w-0">
-          <p
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              void openLocalTrackAlbum(track, () => onPlay(track));
+            }}
+            onDoubleClick={(event) => event.stopPropagation()}
+            title={track.title}
             className={cn(
-              "truncate text-[12px] font-semibold",
+              "block max-w-full truncate text-left text-[12px] font-semibold transition-colors hover:underline hover:decoration-white/20 hover:underline-offset-2",
               active ? "text-accent" : "text-white/80 group-hover:text-white",
             )}
           >
             {track.title}
-          </p>
+          </button>
           <ArtistLinks
             artistString={track.artist}
             className="mt-0.5 block truncate text-[10.5px] text-white/30"
@@ -148,8 +157,21 @@ const PlaylistTrackRow = memo(function PlaylistTrackRow({
         </div>
       </div>
 
-      <span className="hidden min-w-0 truncate text-[11px] text-white/30 md:block">
-        {track.album}
+      <span className="hidden min-w-0 truncate md:block">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            openArtistForAlbum(track.albumArtist?.trim() || track.artist, {
+              title: track.album,
+            });
+          }}
+          onDoubleClick={(event) => event.stopPropagation()}
+          title={track.album}
+          className="block max-w-full truncate text-left text-[11px] text-white/30 transition hover:text-white/65 hover:underline hover:decoration-white/20 hover:underline-offset-2"
+        >
+          {track.album}
+        </button>
       </span>
 
       <span className="text-right text-[10.5px] tabular-nums text-white/30">
@@ -262,6 +284,7 @@ const SpotifyLikedRow = memo(function SpotifyLikedRow({
   onUnlike: (item: SpotifyLikedTrack) => void;
 }) {
   const downloaded = Boolean(track);
+  const openMenu = useTrackMenuStore((state) => state.openMenu);
 
   return (
     <div
@@ -269,6 +292,10 @@ const SpotifyLikedRow = memo(function SpotifyLikedRow({
       tabIndex={downloaded ? 0 : -1}
       onDoubleClick={() => {
         if (track) onPlay(track);
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        if (track) openMenu(track, event.clientX, event.clientY);
       }}
       onKeyDown={(event) => {
         if (track && event.key === "Enter") onPlay(track);
@@ -328,9 +355,16 @@ const SpotifyLikedRow = memo(function SpotifyLikedRow({
       <div className="flex min-w-0 items-center gap-2.5">
         <SpotifyLikedCover item={item} muted={!downloaded} />
         <div className="min-w-0">
-          <p
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              void openLikedTrackAlbum(item, track ? () => onPlay(track) : undefined);
+            }}
+            onDoubleClick={(event) => event.stopPropagation()}
+            title={item.title}
             className={cn(
-              "truncate text-[12px] font-semibold",
+              "block max-w-full truncate text-left text-[12px] font-semibold transition-colors hover:underline hover:decoration-white/20 hover:underline-offset-2",
               active
                 ? "text-accent"
                 : downloaded
@@ -339,15 +373,26 @@ const SpotifyLikedRow = memo(function SpotifyLikedRow({
             )}
           >
             {item.title}
-          </p>
+          </button>
           <p className="mt-0.5 truncate text-[10.5px] text-white/30">
             {item.artist}
           </p>
         </div>
       </div>
 
-      <span className="hidden min-w-0 truncate text-[11px] text-white/30 md:block">
-        {item.album}
+      <span className="hidden min-w-0 truncate md:block">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            openArtistForAlbum(item.artist, { title: item.album });
+          }}
+          onDoubleClick={(event) => event.stopPropagation()}
+          title={item.album}
+          className="block max-w-full truncate text-left text-[11px] text-white/30 transition hover:text-white/65 hover:underline hover:decoration-white/20 hover:underline-offset-2"
+        >
+          {item.album}
+        </button>
       </span>
 
       <div className="flex justify-end">
@@ -408,7 +453,6 @@ export function PlaylistView() {
   const spotifyLoaded = useSpotifyLikedStore((state) => state.loaded);
   const spotifySyncing = useSpotifyLikedStore((state) => state.syncing);
   const syncSpotify = useSpotifyLikedStore((state) => state.sync);
-  const setSpotifyLiked = useSpotifyLikedStore((state) => state.setLiked);
 
   const openRename = usePlaylistDialogStore((state) => state.openRename);
 
@@ -515,22 +559,24 @@ export function PlaylistView() {
     });
   }, []);
 
-  const unlikeLikedTrack = useCallback(
-    async (item: SpotifyLikedTrack) => {
-      if (item.localPath) {
-        await removeTrack(LIKED_PLAYLIST_ID, item.localPath);
-      }
-      await setSpotifyLiked(item.id, false, {
+  const unlikeLikedTrack = useCallback((item: SpotifyLikedTrack) => {
+    void usePlaylistStore.getState().setLike({
+      trackId: item.id,
+      liked: false,
+      localPath: item.localPath,
+      spotify: true,
+      title: item.title,
+      input: {
         title: item.title,
         artist: item.artist,
         album: item.album,
         durationMs: item.durationMs,
         coverUrl: item.coverUrl,
         spotifyUrl: item.spotifyUrl,
-      });
-    },
-    [removeTrack, setSpotifyLiked],
-  );
+        localPath: item.localPath,
+      },
+    });
+  }, []);
 
   const removeFromPlaylist = useCallback(
     async (track: Track) => {
@@ -620,7 +666,7 @@ export function PlaylistView() {
     <div className="flex h-full min-h-0 flex-col">
       <div
         ref={scrollRef}
-        className="no-scrollbar min-h-0 flex-1 overflow-y-auto"
+        className="min-h-0 flex-1 overflow-y-auto"
       >
         <header className="relative shrink-0 overflow-hidden px-6 pb-5 pt-7 lg:px-8">
           <div

@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import type { CachedLyrics, LibraryData, TrackRecord } from "./types";
+import type { CachedLyrics, LibraryData, TrackFileDeleteResult, TrackRecord } from "./types";
 
 const EMPTY: LibraryData = {
   version: 1,
@@ -369,6 +370,34 @@ export class LibraryStore {
     this.data.tracks = this.data.tracks.filter((track) => track.id !== id);
     delete this.data.lyrics[String(id)];
     this.save();
+  }
+
+  /**
+   * Permanently delete a track's audio file and drop its library record.
+   * Only paths inside a configured music folder are allowed, so a bad
+   * renderer id can never unlink an arbitrary file on disk.
+   */
+  async deleteTrackFile(id: number): Promise<TrackFileDeleteResult> {
+    const track = this.getTrack(id);
+    if (!track) throw new Error("Track is not in the library.");
+    const filePath = path.resolve(track.path);
+    const allowed = this.data.musicFolders.some((folder) =>
+      isPathInside(filePath, folder),
+    );
+    if (!allowed) {
+      throw new Error("Refusing to delete a file outside the music folders.");
+    }
+
+    let fileMissing = false;
+    try {
+      await fs.unlink(filePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") fileMissing = true;
+      else throw error;
+    }
+
+    this.removeTrack(id);
+    return { path: filePath, title: track.title, fileMissing };
   }
 
   getLyrics(trackId: number): CachedLyrics[] {

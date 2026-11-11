@@ -6,6 +6,10 @@ import { formatTime } from "@/lib/format";
 import { CoverArt } from "@/components/ui/CoverArt";
 import { EqualizerBars } from "@/components/ui/EqualizerBars";
 import { ArtistLinks } from "@/components/artists/ArtistLinks";
+import {
+  openArtistForAlbum,
+  openLocalTrackAlbum,
+} from "@/lib/navigationTargets";
 import { useTrackMenuStore } from "@/store/contextMenuStore";
 import { useIsLiked, usePlaylistStore } from "@/store/playlistStore";
 
@@ -101,9 +105,14 @@ export const TrackRow = memo(function TrackRow({
         <div className="min-w-0">
           <button
             type="button"
-            onClick={() => onPlay(track)}
+            onClick={(event) => {
+              event.stopPropagation();
+              void openLocalTrackAlbum(track, () => onPlay(track));
+            }}
+            onDoubleClick={(event) => event.stopPropagation()}
+            title={track.title}
             className={cn(
-              "block max-w-full truncate text-left text-[13px] font-semibold transition-colors",
+              "block max-w-full truncate text-left text-[13px] font-semibold transition-colors hover:underline hover:decoration-white/20 hover:underline-offset-2",
               active ? "text-accent" : "text-white/85 group-hover:text-white",
             )}
           >
@@ -117,7 +126,20 @@ export const TrackRow = memo(function TrackRow({
       </div>
 
       <div className="hidden w-[26%] min-w-0 shrink-0 xl:block">
-        <span className="block truncate text-[11.5px] text-white/35">{track.album}</span>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            openArtistForAlbum(track.albumArtist?.trim() || track.artist, {
+              title: track.album,
+            });
+          }}
+          onDoubleClick={(event) => event.stopPropagation()}
+          title={track.album}
+          className="block max-w-full truncate text-left text-[11.5px] text-white/35 transition hover:text-white/70 hover:underline hover:decoration-white/20 hover:underline-offset-2"
+        >
+          {track.album}
+        </button>
       </div>
 
       <div className="hidden w-[76px] shrink-0 justify-center md:flex">

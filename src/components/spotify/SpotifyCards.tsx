@@ -48,16 +48,28 @@ export function SpotifyAlbumCard({
   album,
   tracks,
   downloading,
+  highlighted = false,
+  latest = false,
+  preRelease = false,
   onDownload,
   onOpen,
 }: {
   album: SpotifyAlbumSummary;
   tracks: readonly Track[];
   downloading: boolean;
+  highlighted?: boolean;
+  latest?: boolean;
+  preRelease?: boolean;
   onDownload: () => void;
   onOpen?: () => void;
 }) {
   const stats = localAlbumStats(tracks, album);
+  const typeLabel =
+    album.type === "EP"
+      ? "EP"
+      : album.type
+        ? `${album.type.charAt(0)}${album.type.slice(1).toLowerCase()}`
+        : "Release";
   return (
     <div
       role={onOpen ? "button" : undefined}
@@ -74,6 +86,8 @@ export function SpotifyAlbumCard({
         "group min-w-0 rounded-2xl border border-white/[0.055] bg-white/[0.02] p-2.5 transition hover:border-white/[0.1] hover:bg-white/[0.04]",
         onOpen &&
           "cursor-pointer outline-none focus-visible:border-accent/40 focus-visible:ring-2 focus-visible:ring-accent/50",
+        highlighted &&
+          "border-accent/40 bg-accent/[0.06] ring-1 ring-inset ring-accent/40",
       )}
     >
       <div className="relative">
@@ -81,6 +95,11 @@ export function SpotifyAlbumCard({
           url={album.coverUrl}
           className="aspect-square w-full shadow-[0_18px_40px_-22px_rgba(0,0,0,.9)]"
         />
+        {preRelease && (
+          <span className="pointer-events-none absolute left-2 top-2 rounded-full border border-amber-300/30 bg-black/70 px-2 py-0.5 text-[8.5px] font-bold uppercase tracking-[0.08em] text-amber-200/90 backdrop-blur">
+            Pre-release
+          </span>
+        )}
         <button
           type="button"
           onClick={(event) => {
@@ -110,9 +129,19 @@ export function SpotifyAlbumCard({
         {album.title}
       </p>
       <p className="mt-0.5 truncate text-[10.5px] text-white/30">
-        {album.releaseDate.slice(0, 4) || "—"}
-        <span className="mx-1 text-white/15">·</span>
-        {album.artist || album.type}
+        {latest ? (
+          <>
+            Latest release
+            <span className="mx-1 text-white/15">·</span>
+            {typeLabel}
+          </>
+        ) : (
+          <>
+            {album.releaseDate.slice(0, 4) || "—"}
+            <span className="mx-1 text-white/15">·</span>
+            {album.artist || album.type}
+          </>
+        )}
       </p>
       <div className="mt-2">
         {stats.downloaded ? (

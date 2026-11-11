@@ -5,7 +5,7 @@ import type { ArtistGroup } from "@/types";
 import { formatCount } from "@/lib/format";
 import { useArtistGroups } from "@/hooks/useArtistGroups";
 import { usePlayerStore } from "@/store/playerStore";
-import { CoverArt } from "@/components/ui/CoverArt";
+import { ArtistAvatar } from "@/components/artists/ArtistAvatar";
 import { VirtualMediaGrid } from "@/components/library/VirtualMediaGrid";
 
 /**
@@ -43,10 +43,9 @@ const ArtistCard = memo(function ArtistCard({ artist }: { artist: ArtistGroup })
       className="artist-card lucid-glass-panel group relative min-w-0 cursor-pointer rounded-2xl p-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
     >
       <div className="relative">
-        <CoverArt
-          track={artist.coverTrack}
-          width={512}
-          height={512}
+        <ArtistAvatar
+          name={artist.name}
+          coverTrack={artist.coverTrack}
           className="artist-card-cover aspect-square w-full rounded-full"
           iconClassName="h-8 w-8"
         />

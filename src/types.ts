@@ -23,12 +23,14 @@ export type {
   SpotifyLikedTrack,
   SpotifyLikedTrackInput,
   SpotifyProfile,
+  SpotifyArtistCacheEntry,
   SpotifyArtistSummary,
   SpotifyAlbumSummary,
   SpotifyCatalogTrack,
   SpotifySearchCatalog,
   SpotifyArtistCatalog,
   SpotifyAlbumCatalog,
+  TrackFileDeleteResult,
 } from "../electron/api";
 
 /** Accept persisted/legacy mode ids regardless of case or surrounding spaces. */
@@ -58,6 +60,9 @@ export type NavigationEntry =
       type: "artist-detail";
       artistId: string;
       spotifyArtistId?: string;
+      /** Album to reveal after the artist page mounts. */
+      focusAlbumId?: string;
+      focusAlbumTitle?: string;
     }
   | {
       type: "album-detail";
@@ -67,6 +72,9 @@ export type NavigationEntry =
       coverUrl?: string | null;
       releaseDate?: string;
       totalTracks?: number;
+      /** Track to reveal after the album tracklist mounts. */
+      focusTrackId?: string;
+      focusTrackTitle?: string;
     }
   | { type: "playlist"; playlistId: string }
   | { type: "now-playing" }

@@ -23,12 +23,17 @@ import type {
 import { formatCount, formatTime } from "@/lib/format";
 import { findLocalTrackForSpotify } from "@/lib/spotifyMatch";
 import {
+  openArtistForAlbum,
+  openCatalogTrackAlbum,
+} from "@/lib/navigationTargets";
+import {
   useTrackSorting,
   type TrackSortAccessors,
 } from "@/hooks/useTrackSorting";
 import { usePlayerStore } from "@/store/playerStore";
 import { useDownloadStore } from "@/store/downloadStore";
 import { useSpotifyCatalogStore } from "@/store/spotifyCatalogStore";
+import { useArtistCacheStore } from "@/store/artistCacheStore";
 import { useToastStore } from "@/store/toastStore";
 import { EqualizerBars } from "@/components/ui/EqualizerBars";
 import {
@@ -179,9 +184,18 @@ const SearchTrackRow = memo(function SearchTrackRow({
           className="h-8 w-8"
         />
         <div className="min-w-0">
-          <p
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              void openCatalogTrackAlbum(track, () => {
+                if (local) onPlay(local);
+              });
+            }}
+            onDoubleClick={(event) => event.stopPropagation()}
+            title={track.title}
             className={cn(
-              "truncate text-[12px] font-semibold",
+              "block max-w-full truncate text-left text-[12px] font-semibold transition-colors hover:underline hover:decoration-white/20 hover:underline-offset-2",
               active
                 ? "text-accent"
                 : local
@@ -190,15 +204,29 @@ const SearchTrackRow = memo(function SearchTrackRow({
             )}
           >
             {track.title}
-          </p>
+          </button>
           <p className="mt-0.5 truncate text-[10.5px] text-white/30">
             {track.artist}
           </p>
         </div>
       </div>
 
-      <span className="hidden min-w-0 truncate text-[11px] text-white/30 md:block">
-        {track.album}
+      <span className="hidden min-w-0 truncate md:block">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            openArtistForAlbum(track.artist, {
+              id: track.albumId,
+              title: track.album,
+            });
+          }}
+          onDoubleClick={(event) => event.stopPropagation()}
+          title={track.album}
+          className="block max-w-full truncate text-left text-[11px] text-white/30 transition hover:text-white/65 hover:underline hover:decoration-white/20 hover:underline-offset-2"
+        >
+          {track.album}
+        </button>
       </span>
 
       <div className="flex justify-end">
@@ -274,6 +302,7 @@ export function SearchView() {
   const [mode, setMode] = useState<SearchMode>("library");
   const [debounced, setDebounced] = useState(search);
   const [spotify, setSpotify] = useState<SpotifySearchCatalog | null>(null);
+  const rememberArtist = useArtistCacheStore((state) => state.remember);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [albumPending, setAlbumPending] = useState<string | null>(null);
@@ -322,6 +351,10 @@ export function SearchView() {
       cancelled = true;
     };
   }, [debounced, mode, searchSpotify]);
+
+  useEffect(() => {
+    for (const artist of spotify?.artists ?? []) rememberArtist(artist);
+  }, [spotify, rememberArtist]);
 
   const libraryTracks = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
@@ -464,7 +497,7 @@ export function SearchView() {
     <div className="flex h-full min-h-0 flex-col">
       <div
         ref={scrollRef}
-        className="no-scrollbar min-h-0 flex-1 overflow-y-auto"
+        className="min-h-0 flex-1 overflow-y-auto"
       >
         <header className="relative shrink-0 overflow-hidden px-6 pb-5 pt-7 lg:px-8">
           <div

@@ -51,6 +51,7 @@ import {
 import { ReleasesStore, resolvePreviewUrl } from "./releases";
 import { SpotifyLikedStore, fetchSpotifyProfile } from "./spotify-liked";
 import { SpotifyCatalogService } from "./spotify-catalog";
+import { ArtistCacheStore } from "./artist-cache";
 import type {
   DownloadRequest,
   MusicFolder,
@@ -83,6 +84,11 @@ if (process.env.LYRICS_PLUS_DEBUG_PORT) {
 registerMediaScheme();
 
 let mainWindow: BrowserWindow | null = null;
+/** Set while a window close waits for the renderer's pending Spotify writes. */
+let pendingCloseAck: (() => void) | null = null;
+/** In-flight Spotify like writes that must finish before the app exits. */
+const pendingSpotifyWrites = new Set<Promise<unknown>>();
+let quitAfterPendingWrites = false;
 let store: LibraryStore;
 let playlists: PlaylistStore;
 let stats: StatsStore;
@@ -90,6 +96,7 @@ let trackDelays: TrackDelayStore;
 let releases: ReleasesStore;
 let spotifyLiked: SpotifyLikedStore;
 let spotifyCatalog: SpotifyCatalogService;
+let artistCache: ArtistCacheStore;
 let downloads: DownloadManager;
 
 /**
@@ -245,6 +252,30 @@ function createWindow(): BrowserWindow {
     },
   });
 
+  // Give the renderer a moment to send its final debounced Spotify like
+  // before the window disappears. The renderer replies through
+  // "app:flush-complete"; a timeout keeps a hung renderer from blocking quit.
+  let allowClose = false;
+  let flushing = false;
+  window.on("close", (event) => {
+    if (allowClose) return;
+    event.preventDefault();
+    if (flushing) return;
+    flushing = true;
+    const finish = () => {
+      if (allowClose) return;
+      allowClose = true;
+      pendingCloseAck = null;
+      window.close();
+    };
+    const timer = setTimeout(finish, 4500);
+    pendingCloseAck = () => {
+      clearTimeout(timer);
+      finish();
+    };
+    if (window.webContents.isDestroyed()) finish();
+    else window.webContents.send("app:flush-before-quit");
+  });
   window.once("ready-to-show", () => {
     perfMark("ready-to-show");
     window.show();
@@ -259,6 +290,7 @@ function createWindow(): BrowserWindow {
     }
   });
   window.on("closed", () => {
+    pendingCloseAck = null;
     if (mainWindow === window) mainWindow = null;
   });
 
@@ -513,6 +545,8 @@ function registerIpc(): void {
     fetchSpotifyProfile({ BrowserWindow, session }, store),
   );
 
+  ipcMain.handle("spotify:artist-cache", () => artistCache.list());
+
   ipcMain.handle("spotify-liked:get", async () => {
     const status = await spotifyStatusPayload();
     return spotifyLiked.getSnapshot(status.authenticated);
@@ -536,6 +570,7 @@ function registerIpc(): void {
     if (typeof record.trackId !== "string") {
       throw new Error("A Spotify track id is required.");
     }
+    const trackId = record.trackId;
     const sourceTrack =
       record.track && typeof record.track === "object"
         ? (record.track as Record<string, unknown>)
@@ -563,15 +598,22 @@ function registerIpc(): void {
               : "",
         }
       : null;
-    const status = await spotifyStatusPayload();
-    return spotifyLiked.setLiked(
-      { BrowserWindow, session },
-      store,
-      record.trackId,
-      Boolean(record.liked),
-      status.authenticated,
-      track,
-    );
+    const write = (async () => {
+      const status = await spotifyStatusPayload();
+      return spotifyLiked.setLiked(
+        { BrowserWindow, session },
+        store,
+        trackId,
+        Boolean(record.liked),
+        status.authenticated,
+        track,
+      );
+    })();
+    pendingSpotifyWrites.add(write);
+    void write
+      .finally(() => pendingSpotifyWrites.delete(write))
+      .catch(() => undefined);
+    return write;
   });
 
   ipcMain.handle("spotify:search", async (_event, query: unknown) => {
@@ -734,6 +776,9 @@ function registerIpc(): void {
     updateDiscordRpc(presence);
   });
   ipcMain.handle("remove_track", (_event, trackId: number) => store.removeTrack(trackId));
+  ipcMain.handle("delete_track_file", (_event, trackId: number) =>
+    store.deleteTrackFile(trackId),
+  );
   ipcMain.handle("clear_lyrics_cache", (_event, trackId: number) => store.clearLyrics(trackId));
 
   ipcMain.handle("playlists:getAll", () => playlists.getAll());
@@ -766,6 +811,12 @@ function registerIpc(): void {
     "playlists:removeTrack",
     (_event, payload: { playlistId: string; trackPath: string }) =>
       playlists.removeTrack(payload.playlistId, payload.trackPath),
+  );
+
+  ipcMain.handle(
+    "playlists:setLiked",
+    (_event, payload: { trackPath: string; liked: boolean }) =>
+      playlists.setLikedTrack(payload.trackPath, payload.liked),
   );
 
   ipcMain.handle("playlists:importM3U", async (event) => {
@@ -849,6 +900,11 @@ function registerIpc(): void {
   ipcMain.handle("window:resize_end", () => {
     stopResize();
   });
+  ipcMain.handle("app:flush-complete", () => {
+    const ack = pendingCloseAck;
+    pendingCloseAck = null;
+    ack?.();
+  });
 }
 
 let coversDir = "";
@@ -865,7 +921,12 @@ app.whenReady().then(async () => {
     path.join(userData, "spotify-liked.json"),
     store,
   );
-  spotifyCatalog = new SpotifyCatalogService({ BrowserWindow, session }, store);
+  artistCache = new ArtistCacheStore(path.join(userData, "artists.json"));
+  spotifyCatalog = new SpotifyCatalogService(
+    { BrowserWindow, session },
+    store,
+    artistCache,
+  );
   stats = new StatsStore(path.join(userData, "stats.json"));
   trackDelays = new TrackDelayStore(path.join(userData, "track-delays.json"));
   releases = new ReleasesStore(
@@ -923,9 +984,27 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
+  if (!quitAfterPendingWrites && pendingSpotifyWrites.size > 0) {
+    // The renderer may have closed while a rate-limited like was falling back
+    // to the Spotify web session. Let it settle before the process exits so
+    // the request is not cut off; the cache is flushed below afterwards.
+    event.preventDefault();
+    const pending = [...pendingSpotifyWrites];
+    void Promise.race([
+      Promise.allSettled(pending),
+      new Promise<void>((resolve) => setTimeout(resolve, 8000)),
+    ]).finally(() => {
+      quitAfterPendingWrites = true;
+      app.quit();
+    });
+    return;
+  }
   stopResize();
   store?.flushPendingSettings();
+  playlists?.flush();
+  spotifyLiked?.flushCache();
+  artistCache?.flush();
   downloads?.dispose();
   releases?.dispose();
   spotifyCatalog?.dispose();

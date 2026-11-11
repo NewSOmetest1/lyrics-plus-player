@@ -722,7 +722,7 @@ function AdvancedPanel({
             spellCheck={false}
             value={exportJson}
             aria-label="Exported Lucid configuration"
-            className="no-scrollbar h-36 w-full resize-none rounded-lg border border-white/[0.06] bg-black/25 p-3 font-mono text-[9.5px] leading-relaxed text-white/40 outline-none"
+            className="h-36 w-full resize-none rounded-lg border border-white/[0.06] bg-black/25 p-3 font-mono text-[9.5px] leading-relaxed text-white/40 outline-none"
           />
         </div>
       </section>
@@ -760,7 +760,7 @@ function AdvancedPanel({
             spellCheck={false}
             placeholder={'{\n  "playerHeight": 80,\n  "colorScheme": "vibrant"\n}'}
             aria-label="Import Lucid configuration"
-            className="no-scrollbar h-32 w-full resize-none rounded-lg border border-white/[0.06] bg-black/25 p-3 font-mono text-[9.5px] leading-relaxed text-white/65 placeholder:text-white/15 outline-none transition focus:border-accent/35"
+            className="h-32 w-full resize-none rounded-lg border border-white/[0.06] bg-black/25 p-3 font-mono text-[9.5px] leading-relaxed text-white/65 placeholder:text-white/15 outline-none transition focus:border-accent/35"
           />
           <p className="mt-2 text-[9px] text-white/20">
             Tip: Ctrl / Cmd + Enter applies immediately. Missing keys keep their
@@ -930,7 +930,7 @@ export function LucidSettingsDialog() {
               </div>
             </header>
 
-            <div className="no-scrollbar flex shrink-0 gap-1.5 overflow-x-auto border-b border-white/[0.06] px-4 py-2.5">
+            <div className="flex shrink-0 gap-1.5 overflow-x-auto border-b border-white/[0.06] px-4 py-2.5">
               {TABS.map((item) => {
                 const active = tab === item.id;
                 return (
@@ -983,7 +983,7 @@ export function LucidSettingsDialog() {
 
             <div
               ref={contentRef}
-              className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-3"
+              className="min-h-0 flex-1 overflow-y-auto px-4 py-3"
             >
               {showAdvanced ? (
                 <AdvancedPanel

@@ -8,6 +8,10 @@ import { cn } from "@/lib/cn";
 import { formatQuality, formatTime } from "@/lib/format";
 import { CoverArt } from "@/components/ui/CoverArt";
 import { ArtistLinks } from "@/components/artists/ArtistLinks";
+import {
+  openArtistForAlbum,
+  openLocalTrackAlbum,
+} from "@/lib/navigationTargets";
 
 export function NowPlayingPanel() {
   const track = usePlayerStore((state) => state.currentTrack);
@@ -77,9 +81,24 @@ export function NowPlayingPanel() {
         </div>
 
         <div className="mt-4 min-w-0">
-          <h2 className="truncate font-display text-[21px] font-extrabold leading-tight tracking-[-0.02em] text-white">
-            {track?.title ?? "Nothing playing"}
-          </h2>
+          {track ? (
+            <button
+              type="button"
+              onClick={() => {
+                void openLocalTrackAlbum(track, () => {
+                  void playTrack(track);
+                });
+              }}
+              title={track.title}
+              className="block max-w-full truncate text-left font-display text-[21px] font-extrabold leading-tight tracking-[-0.02em] text-white transition hover:text-accent/90"
+            >
+              {track.title}
+            </button>
+          ) : (
+            <h2 className="truncate font-display text-[21px] font-extrabold leading-tight tracking-[-0.02em] text-white">
+              Nothing playing
+            </h2>
+          )}
           {track ? (
             <ArtistLinks
               artistString={track.artist}
@@ -92,7 +111,19 @@ export function NowPlayingPanel() {
           )}
           {track && (
             <p className="mt-0.5 truncate text-[11px] text-white/25 [@media(max-height:780px)]:hidden">
-              {track.album}
+              <button
+                type="button"
+                onClick={() =>
+                  openArtistForAlbum(
+                    track.albumArtist?.trim() || track.artist,
+                    { title: track.album },
+                  )
+                }
+                title={track.album}
+                className="max-w-full truncate text-left transition hover:text-white/55 hover:underline hover:decoration-white/20 hover:underline-offset-2"
+              >
+                {track.album}
+              </button>
             </p>
           )}
         </div>
@@ -144,7 +175,7 @@ export function NowPlayingPanel() {
           </span>
         </div>
 
-        <div className="no-scrollbar mt-1 min-h-0 flex-1 overflow-y-auto">
+        <div className="mt-1 min-h-0 flex-1 overflow-y-auto">
           {queue.length === 0 ? (
             <p className="py-5 text-center text-[10.5px] leading-relaxed text-white/20">
               Queue is empty.
@@ -186,9 +217,13 @@ export function NowPlayingPanel() {
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation();
-                      void playTrack(item, 0, tracks);
+                      void openLocalTrackAlbum(item, () => {
+                        void playTrack(item, 0, tracks);
+                      });
                     }}
-                    className="block max-w-full truncate text-left text-[11px] font-medium text-white/65 group-hover:text-white"
+                    onDoubleClick={(event) => event.stopPropagation()}
+                    title={item.title}
+                    className="block max-w-full truncate text-left text-[11px] font-medium text-white/65 transition hover:text-white hover:underline hover:decoration-white/20 hover:underline-offset-2 group-hover:text-white"
                   >
                     {item.title}
                   </button>

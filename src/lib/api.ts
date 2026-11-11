@@ -13,6 +13,7 @@ import type {
   ReleaseFeed,
   ScanProgress,
   ScanSummary,
+  SpotifyArtistCacheEntry,
   SpotifyArtistCatalog,
   SpotifyArtistSummary,
   SpotifyAlbumCatalog,
@@ -23,6 +24,7 @@ import type {
   SpotifySearchCatalog,
   StatsData,
   Track,
+  TrackFileDeleteResult,
   TrackStatsRecord,
 } from "@/types";
 import {
@@ -1043,6 +1045,35 @@ export const backend = {
     return { playlist: result.playlist, changed: result.removed };
   },
 
+  /**
+   * Instant Liked Songs membership. The main process updates memory first and
+   * coalesces the playlists.json write, so heart clicks never wait for disk.
+   */
+  async setLikedPlaylistTrack(
+    trackPath: string,
+    liked: boolean,
+  ): Promise<PlaylistTrackChange> {
+    if (!isElectron) {
+      const playlists = readDemoPlaylists();
+      const playlist = playlists.find((item) => item.id === LIKED_PLAYLIST_ID);
+      if (!playlist) throw new Error("Liked Songs not found");
+      const exists = playlist.trackPaths.includes(trackPath);
+      if (exists !== liked) {
+        playlist.trackPaths = liked
+          ? [trackPath, ...playlist.trackPaths.filter((item) => item !== trackPath)]
+          : playlist.trackPaths.filter((item) => item !== trackPath);
+        playlist.updatedAt = Date.now();
+        writeDemoPlaylists(playlists);
+      }
+      return { playlist, changed: exists !== liked };
+    }
+    const result = await electronApi().invoke<{
+      playlist: Playlist;
+      changed: boolean;
+    }>("playlists:setLiked", { trackPath, liked });
+    return { playlist: result.playlist, changed: result.changed };
+  },
+
   async importM3U(): Promise<Playlist | null> {
     if (!isElectron) {
       throw new Error("M3U import is available in the desktop app");
@@ -1265,6 +1296,13 @@ export const backend = {
     return electronApi().invoke<SpotifySearchCatalog>("spotify:search", query);
   },
 
+  async getSpotifyArtistCache(): Promise<SpotifyArtistCacheEntry[]> {
+    if (!isElectron) return [];
+    return electronApi().invoke<SpotifyArtistCacheEntry[]>(
+      "spotify:artist-cache",
+    );
+  },
+
   async getSpotifyArtist(
     artistId: string,
     name?: string,
@@ -1362,6 +1400,16 @@ export const backend = {
   async removeTrack(trackId: number): Promise<void> {
     if (!isElectron) return;
     await electronApi().invoke<void>("remove_track", trackId);
+  },
+
+  async deleteTrackFile(trackId: number): Promise<TrackFileDeleteResult> {
+    if (!isElectron) {
+      throw new Error("Deleting files is only available in the desktop app.");
+    }
+    return electronApi().invoke<TrackFileDeleteResult>(
+      "delete_track_file",
+      trackId,
+    );
   },
 
   async clearLyricsCache(trackId: number): Promise<void> {

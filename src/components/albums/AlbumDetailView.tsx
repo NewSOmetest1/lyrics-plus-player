@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -19,12 +19,12 @@ import type {
   SpotifyCatalogTrack,
   Track,
 } from "@/types";
-import { LIKED_PLAYLIST_ID } from "@/types";
 import { cn } from "@/lib/cn";
 import { formatCount, formatTime } from "@/lib/format";
 import { findLocalTrackForSpotify } from "@/lib/spotifyMatch";
 import { useCoverPalette } from "@/hooks/useCoverPalette";
 import { useNavigation } from "@/hooks/useNavigation";
+import { openArtistForAlbum } from "@/lib/navigationTargets";
 import { usePlayerStore } from "@/store/playerStore";
 import { useSpotifyCatalogStore } from "@/store/spotifyCatalogStore";
 import { useDownloadStore } from "@/store/downloadStore";
@@ -94,6 +94,8 @@ export function AlbumDetailView() {
   const selectedAlbumTotalTracks = usePlayerStore(
     (state) => state.selectedAlbumTotalTracks,
   );
+  const focusTrackId = usePlayerStore((state) => state.focusTrackId);
+  const focusTrackTitle = usePlayerStore((state) => state.focusTrackTitle);
   const tracks = usePlayerStore((state) => state.tracks);
   const currentTrack = usePlayerStore((state) => state.currentTrack);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
@@ -117,11 +119,7 @@ export function AlbumDetailView() {
   );
 
   const loadAlbum = useSpotifyCatalogStore((state) => state.loadAlbum);
-  const spotifySnapshot = useSpotifyLikedStore((state) => state.snapshot);
-  const likedOverrides = useSpotifyLikedStore(
-    (state) => state.likedOverrides,
-  );
-  const setSpotifyLiked = useSpotifyLikedStore((state) => state.setLiked);
+  const likedIds = useSpotifyLikedStore((state) => state.likedIds);
 
   const { canGoBack, goBack } = useNavigation();
 
@@ -129,7 +127,8 @@ export function AlbumDetailView() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
-  const [heartPending, setHeartPending] = useState<Record<string, boolean>>({});
+  const [highlightTrack, setHighlightTrack] = useState<string | null>(null);
+  const trackRowRefs = useRef(new Map<string, HTMLDivElement>());
 
   const fallbackArtist = selectedAlbumArtist?.trim() ?? "";
   const fallbackTitle = selectedAlbumTitle?.trim() ?? "";
@@ -219,6 +218,37 @@ export function AlbumDetailView() {
   const onPc = rows.filter((row) => row.local).length;
   const totalTracks = album.totalTracks || albumTracks.length || onPc;
 
+  useEffect(() => {
+    if (!focusTrackId && !focusTrackTitle) return;
+    if (rows.length === 0) return;
+    const wantedTitle = focusTrackTitle?.trim().toLocaleLowerCase() ?? "";
+    const target =
+      rows.find(
+        (row) => focusTrackId && row.track.id === focusTrackId,
+      ) ??
+      (wantedTitle
+        ? rows.find(
+            (row) =>
+              row.track.title.trim().toLocaleLowerCase() === wantedTitle,
+          )
+        : undefined);
+    if (!target) return;
+    setHighlightTrack(target.track.id);
+    const frame = requestAnimationFrame(() => {
+      trackRowRefs.current
+        .get(target.track.id)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusTrackId, focusTrackTitle, rows]);
+
+  useEffect(() => {
+    if (!highlightTrack) return;
+    const clear = () => setHighlightTrack(null);
+    window.addEventListener("pointerdown", clear);
+    return () => window.removeEventListener("pointerdown", clear);
+  }, [highlightTrack]);
+
   const localQueue = useMemo(() => {
     const seen = new Set<string>();
     const queue: Track[] = [];
@@ -247,12 +277,6 @@ export function AlbumDetailView() {
     return pending;
   }, [pendingDownloads]);
 
-  const likedIds = useMemo(
-    () =>
-      new Set((spotifySnapshot?.items ?? []).map((item) => item.id)),
-    [spotifySnapshot],
-  );
-
   const palette = useCoverPalette(
     album.coverUrl,
     `${album.artist} ${album.title}`,
@@ -271,6 +295,15 @@ export function AlbumDetailView() {
     }
     setShuffle(false);
     void playTrack(local, 0, localQueue.length > 0 ? localQueue : [local]);
+  };
+
+  const revealTrack = (trackId: string) => {
+    setHighlightTrack(trackId);
+    requestAnimationFrame(() => {
+      trackRowRefs.current
+        .get(trackId)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
   };
 
   const back = () => {
@@ -315,57 +348,29 @@ export function AlbumDetailView() {
     }
   };
 
-  const isTrackLiked = (trackId: string) =>
-    likedOverrides[trackId] ?? likedIds.has(trackId);
+  const isTrackLiked = (trackId: string) => likedIds.has(trackId);
 
-  const toggleLiked = async (
+  const toggleLiked = (
     track: SpotifyCatalogTrack,
     local: Track | null,
   ) => {
-    if (heartPending[track.id]) return;
     const next = !isTrackLiked(track.id);
-    setHeartPending((current) => ({ ...current, [track.id]: true }));
-
-    // Keep playlists.json in step immediately, including when Spotify is
-    // rate limited and the remote request falls back or fails.
-    if (local) {
-      try {
-        if (next) {
-          await usePlaylistStore
-            .getState()
-            .addTrack(LIKED_PLAYLIST_ID, local.path);
-        } else {
-          await usePlaylistStore
-            .getState()
-            .removeTrack(LIKED_PLAYLIST_ID, local.path);
-        }
-      } catch (cause) {
-        console.error("[album] local liked playlist update failed", cause);
-      }
-    }
-
-    try {
-      await setSpotifyLiked(track.id, next, {
+    void usePlaylistStore.getState().setLike({
+      trackId: track.id,
+      liked: next,
+      localPath: local?.path ?? null,
+      spotify: true,
+      title: track.title,
+      input: {
         title: track.title,
         artist: track.artist,
         album: track.album,
         durationMs: track.durationMs,
         coverUrl: track.coverUrl,
         spotifyUrl: track.spotifyUrl,
-      });
-    } catch (cause) {
-      useToastStore.getState().push({
-        kind: "error",
-        title: "Could not update Spotify Liked Songs",
-        description: cause instanceof Error ? cause.message : String(cause),
-      });
-    } finally {
-      setHeartPending((current) => {
-        const nextState = { ...current };
-        delete nextState[track.id];
-        return nextState;
-      });
-    }
+        localPath: local?.path ?? null,
+      },
+    });
   };
 
   const year = album.releaseDate.slice(0, 4);
@@ -381,7 +386,7 @@ export function AlbumDetailView() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         <header className="relative shrink-0 overflow-hidden px-6 pb-6 pt-5 lg:px-8">
           <div
             className="pointer-events-none absolute inset-0 opacity-80"
@@ -418,7 +423,15 @@ export function AlbumDetailView() {
                 <Sparkles className="h-3 w-3" />
                 {album.type || "Album"}
               </p>
-              <motion.h1
+              <motion.button
+                type="button"
+                onClick={() =>
+                  openArtistForAlbum(album.artist, {
+                    id: album.id,
+                    title: album.title,
+                  })
+                }
+                title={`Open ${album.artist || "artist"}`}
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{
@@ -426,11 +439,10 @@ export function AlbumDetailView() {
                   delay: 0.05,
                   ease: [0.2, 0, 0, 1],
                 }}
-                className="mt-1.5 font-display text-[32px] font-extrabold leading-[1.05] tracking-[-0.035em] text-white sm:text-[40px]"
-                title={album.title}
+                className="mt-1.5 block max-w-full truncate text-left font-display text-[32px] font-extrabold leading-[1.05] tracking-[-0.035em] text-white transition hover:text-accent/90 sm:text-[40px]"
               >
                 {album.title}
-              </motion.h1>
+              </motion.button>
 
               <p className="mt-1.5 min-w-0 truncate text-[13px] font-semibold text-white/55">
                 {album.artist ? (
@@ -557,11 +569,14 @@ export function AlbumDetailView() {
                   );
                   const pending = pendingById.get(track.id);
                   const liked = isTrackLiked(track.id);
-                  const heartBusy = Boolean(heartPending[track.id]);
 
                   return (
                     <div
                       key={`${track.id}-${index}`}
+                      ref={(node) => {
+                        if (node) trackRowRefs.current.set(track.id, node);
+                        else trackRowRefs.current.delete(track.id);
+                      }}
                       role="row"
                       tabIndex={local ? 0 : -1}
                       onClick={() => {
@@ -573,7 +588,11 @@ export function AlbumDetailView() {
                       className={cn(
                         "group grid min-h-[52px] items-center gap-3 rounded-xl px-2.5 outline-none transition-colors",
                         TRACK_GRID,
-                        active ? "bg-white/[0.06]" : "hover:bg-white/[0.04]",
+                        highlightTrack === track.id
+                          ? "bg-accent/[0.09] ring-1 ring-inset ring-accent/45"
+                          : active
+                            ? "bg-white/[0.06]"
+                            : "hover:bg-white/[0.04]",
                         local
                           ? "cursor-pointer focus-visible:bg-white/[0.06]"
                           : "cursor-default",
@@ -598,19 +617,25 @@ export function AlbumDetailView() {
                       </div>
 
                       <div className="min-w-0">
-                        <p
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            revealTrack(track.id);
+                          }}
+                          onDoubleClick={(event) => event.stopPropagation()}
+                          title={track.title}
                           className={cn(
-                            "truncate text-[12.5px] font-semibold",
+                            "block max-w-full truncate text-left text-[12.5px] font-semibold transition-colors hover:underline hover:decoration-white/20 hover:underline-offset-2",
                             active
                               ? "text-accent"
                               : local
                                 ? "text-white/80 group-hover:text-white"
                                 : "text-white/45",
                           )}
-                          title={track.title}
                         >
                           {track.title}
-                        </p>
+                        </button>
                         <p className="mt-0.5 truncate text-[10.5px] text-white/30">
                           {track.artist}
                           <span className="md:hidden">
@@ -639,9 +664,8 @@ export function AlbumDetailView() {
                           type="button"
                           onClick={(event) => {
                             event.stopPropagation();
-                            void toggleLiked(track, local);
+                            toggleLiked(track, local);
                           }}
-                          disabled={heartBusy}
                           aria-pressed={liked}
                           aria-label={
                             liked

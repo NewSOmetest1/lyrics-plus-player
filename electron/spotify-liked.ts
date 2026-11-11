@@ -554,6 +554,9 @@ export class SpotifyLikedStore {
   private matchRevision = -1;
   private matchPaths = new Map<string, string | null>();
 
+  private cacheWriteTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingCacheWrite: SpotifyLikedCacheFile | null = null;
+
   constructor(
     private readonly file: string,
     private readonly library: LibraryStore,
@@ -618,14 +621,43 @@ export class SpotifyLikedStore {
     }
   }
 
-  private writeCache(data: SpotifyLikedCacheFile): void {
+  private writeCache(
+    data: SpotifyLikedCacheFile,
+    immediate = false,
+  ): void {
+    this.cache = data;
+    this.cacheLoaded = true;
+    if (immediate) {
+      this.persistCache(data);
+      return;
+    }
+    this.pendingCacheWrite = data;
+    if (this.cacheWriteTimer !== null) clearTimeout(this.cacheWriteTimer);
+    this.cacheWriteTimer = setTimeout(() => {
+      this.cacheWriteTimer = null;
+      const pending = this.pendingCacheWrite;
+      this.pendingCacheWrite = null;
+      if (pending) this.persistCache(pending);
+    }, 400);
+  }
+
+  /** Write any coalesced like update before the process exits. */
+  flushCache(): void {
+    if (this.cacheWriteTimer !== null) {
+      clearTimeout(this.cacheWriteTimer);
+      this.cacheWriteTimer = null;
+    }
+    const pending = this.pendingCacheWrite;
+    this.pendingCacheWrite = null;
+    if (pending) this.persistCache(pending);
+  }
+
+  private persistCache(data: SpotifyLikedCacheFile): void {
     try {
       mkdirSync(path.dirname(this.file), { recursive: true });
       const temporary = `${this.file}.tmp`;
       writeFileSync(temporary, JSON.stringify(data), "utf8");
       renameSync(temporary, this.file);
-      this.cache = data;
-      this.cacheLoaded = true;
     } catch (error) {
       console.warn("[spotify-liked] could not write cache:", error);
     }
@@ -782,7 +814,7 @@ export class SpotifyLikedStore {
         overrides: merged.overrides,
       };
       this.hidden.clear();
-      this.writeCache(empty);
+      this.writeCache(empty, true);
       return this.snapshot(empty, authenticated, warnings);
     }
 
@@ -810,7 +842,7 @@ export class SpotifyLikedStore {
       overrides: merged.overrides,
     };
     this.hidden.clear();
-    this.writeCache(data);
+    this.writeCache(data, true);
     return this.snapshot(data, authenticated, warnings);
   }
 
@@ -895,25 +927,26 @@ export class SpotifyLikedStore {
   ): Promise<SpotifyLikedSnapshot> {
     let id = trackId.trim();
     const credentials = await resolveCredentials(deps, store);
-    const token = credentials
-      ? await getSpotifyAccessToken(
-          deps,
-          credentials.spDc,
-          credentials.spKey,
-        ).catch((error: unknown) => {
-          console.error("[spotify-liked] token request failed", error);
-          return {
-            token: null,
-            status: null,
-            message: error instanceof Error ? error.message : String(error),
-          };
-        })
-      : null;
+    if (!credentials) {
+      throw new Error(
+        "Spotify Like Error: Spotify is not connected. Open Settings → Providers and sign in.",
+      );
+    }
+
+    const token = await getSpotifyAccessToken(
+      deps,
+      credentials.spDc,
+      credentials.spKey,
+    ).catch((error: unknown) => {
+      console.error("[spotify-liked] token request failed", error);
+      return {
+        token: null,
+        status: null,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    });
 
     if (!/^[A-Za-z0-9]{22}$/.test(id)) {
-      if (!credentials) {
-        throw new Error("Could not match Spotify ID");
-      }
       const resolved = await searchSpotifyTrackId(
         deps,
         credentials,
@@ -924,20 +957,7 @@ export class SpotifyLikedStore {
       id = resolved;
     }
 
-    // Local-first: the heart and Liked Songs update even when Spotify is
-    // throttled. The override keeps this pending like through a later sync.
-    if (liked) this.hidden.delete(id);
-    else this.hidden.add(id);
-    this.updateCache(id, liked, input);
-
     const warnings: string[] = [];
-    if (!credentials) {
-      warnings.push(
-        "Spotify Like Error: Spotify is not connected. Open Settings → Providers and sign in.",
-      );
-      return { ...this.getSnapshot(authenticated), warnings };
-    }
-
     let saved = false;
     let webError: string | null = null;
 
@@ -1007,8 +1027,17 @@ export class SpotifyLikedStore {
       }
     }
 
-    if (!saved && webError) warnings.push(webError);
-    else if (saved && webError) {
+    // Rollback is the renderer's job: nothing below runs when Spotify did not
+    // actually accept the change, so the persisted mirror never drifts.
+    if (!saved) {
+      throw new Error(webError ?? "Spotify Like Error: request failed.");
+    }
+
+    if (liked) this.hidden.delete(id);
+    else this.hidden.add(id);
+    this.updateCache(id, liked, input);
+
+    if (webError) {
       warnings.push(
         `Web API fallback: ${webError.replace(
           / — .*$/s,

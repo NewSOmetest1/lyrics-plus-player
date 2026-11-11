@@ -21,6 +21,7 @@ import { cn } from "@/lib/cn";
 import { formatQuality, formatTime } from "@/lib/format";
 import { CoverArt } from "@/components/ui/CoverArt";
 import { useRenderProbe } from "@/lib/renderProbe";
+import { openLocalTrackAlbum } from "@/lib/navigationTargets";
 import { ArtistLinks } from "@/components/artists/ArtistLinks";
 import { IconButton } from "@/components/ui/IconButton";
 import { EqualizerBars } from "@/components/ui/EqualizerBars";
@@ -175,14 +176,32 @@ export function PlayerBar({
                 className="min-w-0"
               >
                 <div className="flex min-w-0 items-center gap-1.5">
-                  <p
-                    className={cn(
-                      "min-w-0 truncate font-semibold text-white/90",
-                      compactPlayer ? "text-[12px]" : "text-[12.5px]",
-                    )}
-                  >
-                    {track?.title ?? "Nothing playing"}
-                  </p>
+                  {track ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void openLocalTrackAlbum(track, () => {
+                          void usePlayerStore.getState().playTrack(track);
+                        });
+                      }}
+                      title={track.title}
+                      className={cn(
+                        "min-w-0 truncate text-left font-semibold text-white/90 transition hover:text-white hover:underline hover:decoration-white/20 hover:underline-offset-2",
+                        compactPlayer ? "text-[12px]" : "text-[12.5px]",
+                      )}
+                    >
+                      {track.title}
+                    </button>
+                  ) : (
+                    <p
+                      className={cn(
+                        "min-w-0 truncate font-semibold text-white/90",
+                        compactPlayer ? "text-[12px]" : "text-[12.5px]",
+                      )}
+                    >
+                      Nothing playing
+                    </p>
+                  )}
                   {track && (
                     <EqualizerBars
                       playing={isPlaying}

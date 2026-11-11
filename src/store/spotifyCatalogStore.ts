@@ -32,6 +32,7 @@ interface SpotifyCatalogState {
   albumCache: Record<string, CacheEntry<SpotifyCatalogTrack[]>>;
   albumDetailsCache: Record<string, CacheEntry<SpotifyAlbumCatalog>>;
   artistNameCache: Record<string, SpotifyArtistSummary | null>;
+  albumNameCache: Record<string, SpotifyAlbumSummary | null>;
 
   search: (query: string) => Promise<SpotifySearchCatalog>;
   loadArtist: (
@@ -53,6 +54,10 @@ interface SpotifyCatalogState {
     fallback?: { artist?: string; album?: string; coverUrl?: string | null },
   ) => Promise<SpotifyCatalogTrack[]>;
   resolveArtist: (name: string) => Promise<SpotifyArtistSummary | null>;
+  resolveAlbum: (
+    artist: string,
+    album: string,
+  ) => Promise<SpotifyAlbumSummary | null>;
   albumFor: (album: SpotifyAlbumSummary) => void;
 }
 
@@ -62,6 +67,7 @@ export const useSpotifyCatalogStore = create<SpotifyCatalogState>((set, get) => 
   albumCache: {},
   albumDetailsCache: {},
   artistNameCache: {},
+  albumNameCache: {},
 
   search: async (query) => {
     const key = normalize(query);
@@ -120,6 +126,41 @@ export const useSpotifyCatalogStore = create<SpotifyCatalogState>((set, get) => 
       artistNameCache: { ...state.artistNameCache, [key]: value },
     }));
     return value;
+  },
+
+  resolveAlbum: async (artist, album) => {
+    const artistName = artist.trim();
+    const albumTitle = album.trim();
+    const key = `${normalize(artistName)}\u0000${normalize(albumTitle)}`;
+    if (key in get().albumNameCache) {
+      return get().albumNameCache[key] ?? null;
+    }
+    if (!albumTitle) return null;
+    try {
+      const result = await get().search(
+        `${artistName} ${albumTitle}`.trim(),
+      );
+      const wantedAlbum = normalize(albumTitle);
+      const wantedArtist = normalize(artistName);
+      const found =
+        result.albums.find((item) => {
+          const title = normalize(item.title);
+          const artists = normalize(`${item.artist} ${item.artists.join(" ")}`);
+          return (
+            title === wantedAlbum &&
+            (!wantedArtist || artists.includes(wantedArtist))
+          );
+        }) ??
+        result.albums.find((item) => normalize(item.title) === wantedAlbum) ??
+        null;
+      set((state) => ({
+        albumNameCache: { ...state.albumNameCache, [key]: found },
+      }));
+      return found;
+    } catch (error) {
+      console.warn("[spotify-catalog] album resolve failed:", error);
+      return null;
+    }
   },
 
   albumFor: () => {

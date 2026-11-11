@@ -9,7 +9,11 @@ import { usePlayerStore } from "@/store/playerStore";
 import { usePlaylistStore } from "@/store/playlistStore";
 import { useReleasesStore } from "@/store/releasesStore";
 import { useDownloadStore } from "@/store/downloadStore";
-import { useSpotifyLikedStore } from "@/store/spotifyLikedStore";
+import {
+  flushPendingLikes,
+  useSpotifyLikedStore,
+} from "@/store/spotifyLikedStore";
+import { useArtistCacheStore } from "@/store/artistCacheStore";
 import { useToastStore } from "@/store/toastStore";
 import { backend, subscribePlayback } from "@/lib/api";
 import { useNavigation } from "@/hooks/useNavigation";
@@ -409,9 +413,24 @@ export default function App() {
     void useTrackDelayStore.getState().init();
     void usePlaylistStore.getState().init();
     void useSpotifyLikedStore.getState().init();
+    void useArtistCacheStore.getState().hydrate();
     void useReleasesStore.getState().init();
     void useDownloadStore.getState().init();
     useLucidSettingsStore.getState().init();
+  }, []);
+
+  // The main process intercepts the window close and asks the renderer to
+  // send any debounced Spotify like immediately. The ack lets the window
+  // close as soon as the final request settles (main also has a timeout).
+  useEffect(() => {
+    const unlisten = window.electronAPI?.on("app:flush-before-quit", () => {
+      void flushPendingLikes(4000).finally(() => {
+        void window.electronAPI
+          ?.invoke("app:flush-complete")
+          .catch(() => undefined);
+      });
+    });
+    return () => unlisten?.();
   }, []);
 
   useEffect(() => {
@@ -717,33 +736,34 @@ export default function App() {
           </AnimatePresence>
         </main>
 
-        {!focusMode && isPlayerSurface && (
+        {isPlayerSurface && (
           <>
-            {isRightOpen ? (
-              <PanelResizeHandle
-                side="right"
-                width={rightPanelWidth}
-                min={RIGHT_PANEL_LIMITS.min}
-                max={RIGHT_PANEL_LIMITS.max}
-                onResize={handleRightPanelResize}
-                onDraggingChange={(dragging) =>
-                  setResizingPanel(dragging ? "right" : null)
-                }
-                className="hidden lg:flex"
-              />
-            ) : (
-              <RightEdgeHandle onOpen={openRightPanel} />
-            )}
+            {!focusMode &&
+              (isRightOpen ? (
+                <PanelResizeHandle
+                  side="right"
+                  width={rightPanelWidth}
+                  min={RIGHT_PANEL_LIMITS.min}
+                  max={RIGHT_PANEL_LIMITS.max}
+                  onResize={handleRightPanelResize}
+                  onDraggingChange={(dragging) =>
+                    setResizingPanel(dragging ? "right" : null)
+                  }
+                  className="hidden lg:flex"
+                />
+              ) : (
+                <RightEdgeHandle onOpen={openRightPanel} />
+              ))}
 
             <div
-              aria-hidden={!isRightOpen}
-              data-open={isRightOpen ? "true" : "false"}
+              aria-hidden={!rightPanelVisible}
+              data-open={rightPanelVisible ? "true" : "false"}
               data-resizing={resizingPanel === "right" ? "true" : "false"}
               className={cn(
                 "now-playing-panel hidden h-full min-w-0 shrink-0 overflow-hidden lg:block",
-                !isRightOpen && "pointer-events-none",
+                !rightPanelVisible && "pointer-events-none",
               )}
-              style={{ width: isRightOpen ? rightPanelWidth : 0 }}
+              style={{ width: rightPanelVisible ? rightPanelWidth : 0 }}
             >
               <div className="now-playing-panel-content flex h-full min-w-0 flex-col">
                 <NowPlayingPanel />

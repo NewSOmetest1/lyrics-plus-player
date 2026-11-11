@@ -7,17 +7,21 @@ import {
   Heart,
   ListMusic,
   ListPlus,
+  Loader2,
   Play,
   Trash2,
 } from "lucide-react";
 
-import type { Playlist } from "@/types";
+import type { Playlist, Track } from "@/types";
 import { isLikedPlaylist } from "@/types";
 import { cn } from "@/lib/cn";
+import { backend } from "@/lib/api";
 import { useTrackMenuStore } from "@/store/contextMenuStore";
 import { usePlaylistDialogStore } from "@/store/playlistDialogStore";
 import { usePlaylistStore, useIsLiked } from "@/store/playlistStore";
 import { usePlayerStore } from "@/store/playerStore";
+import { useSettingsStore } from "@/store/settingsStore";
+import { useSpotifyLikedStore } from "@/store/spotifyLikedStore";
 import { useToastStore } from "@/store/toastStore";
 
 const MENU_WIDTH = 232;
@@ -73,7 +77,16 @@ export function TrackContextMenu() {
   const addTrack = usePlaylistStore((state) => state.addTrack);
   const removeTrack = usePlaylistStore((state) => state.removeTrack);
   const toggleLike = usePlaylistStore((state) => state.toggleLike);
-  const liked = useIsLiked(track?.path);
+  const localLiked = useIsLiked(track?.path);
+  const likedSongsSource = useSettingsStore((state) => state.likedSongsSource);
+  const spotifyItem = useSpotifyLikedStore((state) =>
+    state.itemForPath(track?.path),
+  );
+  const spotifyLiked = useSpotifyLikedStore((state) =>
+    spotifyItem ? state.likedIds.has(spotifyItem.id) : false,
+  );
+  const liked =
+    localLiked || (likedSongsSource === "spotify" && spotifyLiked);
   const playTrack = usePlayerStore((state) => state.playTrack);
   const addToQueue = usePlayerStore((state) => state.addToQueue);
   const openCreate = usePlaylistDialogStore((state) => state.openCreate);
@@ -81,6 +94,8 @@ export function TrackContextMenu() {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [position, setPosition] = useState({ left: x, top: y });
   const [submenuOpen, setSubmenuOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Track | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -150,14 +165,71 @@ export function TrackContextMenu() {
     }
   };
 
+  const deleteFile = async () => {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    setDeleting(true);
+    try {
+      const player = usePlayerStore.getState();
+      const current = player.currentTrack;
+      if (
+        current &&
+        (current.id === target.id || current.path === target.path)
+      ) {
+        await backend.stop();
+        usePlayerStore.setState({
+          currentTrack: null,
+          isPlaying: false,
+          positionMs: 0,
+          durationMs: 0,
+        });
+      }
+
+      const result = await backend.deleteTrackFile(target.id);
+      await usePlayerStore.getState().refreshLibrary();
+      usePlayerStore.setState((state) => {
+        const playbackQueue = state.playbackQueue.filter(
+          (item) => item.id !== target.id,
+        );
+        return {
+          playbackQueue,
+          queueIndex: Math.max(
+            0,
+            Math.min(state.queueIndex, playbackQueue.length - 1),
+          ),
+        };
+      });
+
+      useToastStore.getState().push({
+        kind: "success",
+        title: result.fileMissing
+          ? "Removed from library"
+          : "Deleted from device",
+        description: result.fileMissing
+          ? `${target.title} · file was already missing`
+          : `${target.title} · ${target.artist}`,
+      });
+      setDeleteTarget(null);
+    } catch (error) {
+      useToastStore.getState().push({
+        kind: "error",
+        title: "Could not delete file",
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const submenuSide =
     position.left + MENU_WIDTH + SUBMENU_WIDTH + 12 > window.innerWidth
       ? "right"
       : "left";
 
   return createPortal(
-    <AnimatePresence>
-      {open && (
+    <>
+      <AnimatePresence>
+        {open && (
         <motion.div
           key="track-context-menu"
           ref={menuRef}
@@ -286,9 +358,96 @@ export function TrackContextMenu() {
               />
             </>
           )}
+
+          <div className="my-1 h-px bg-white/[0.07]" />
+          <MenuItem
+            icon={<Trash2 className="h-3.5 w-3.5" />}
+            label="Delete file from device"
+            danger
+            onClick={() => {
+              const target = track;
+              close();
+              setDeleteTarget(target);
+            }}
+          />
         </motion.div>
       )}
-    </AnimatePresence>,
+    </AnimatePresence>
+
+    <AnimatePresence>
+      {deleteTarget && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[175] flex items-center justify-center bg-black/55 p-6 backdrop-blur-sm"
+          onPointerDown={(event) => {
+            if (event.target === event.currentTarget && !deleting) {
+              setDeleteTarget(null);
+            }
+          }}
+        >
+          <motion.div
+            initial={{ opacity: 0, y: 12, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.98 }}
+            transition={{ duration: 0.18, ease: [0.2, 0, 0, 1] }}
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-track-file-title"
+            className="settings-modal w-full max-w-[400px] rounded-2xl p-5"
+          >
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-rose-400/10 text-rose-300">
+                <Trash2 className="h-4 w-4" />
+              </span>
+              <h2
+                id="delete-track-file-title"
+                className="text-[14px] font-bold text-white"
+              >
+                Delete file from device?
+              </h2>
+            </div>
+            <p className="mt-3 text-[12px] leading-relaxed text-white/40">
+              “{deleteTarget.title}”
+              {deleteTarget.artist ? ` · ${deleteTarget.artist}` : ""} will be
+              permanently deleted from disk and removed from your library. This
+              cannot be undone.
+            </p>
+            <p
+              className="mt-2 truncate text-[10px] text-white/20"
+              title={deleteTarget.path}
+            >
+              {deleteTarget.path}
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className="h-8 rounded-full px-3.5 text-[11.5px] font-semibold text-white/40 transition hover:bg-white/[0.06] hover:text-white/75 disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void deleteFile()}
+                disabled={deleting}
+                className="inline-flex h-8 items-center gap-1.5 rounded-full bg-rose-400/90 px-4 text-[11.5px] font-bold text-black transition hover:bg-rose-300 disabled:opacity-60"
+              >
+                {deleting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3.5 w-3.5" />
+                )}
+                Delete file
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+    </>,
     document.body,
   );
 }

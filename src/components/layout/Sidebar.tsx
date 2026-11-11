@@ -390,7 +390,7 @@ export function Sidebar({
           </div>
         </div>
 
-        <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 pb-2">
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 pb-2">
           <button
             type="button"
             title={compact ? "All tracks" : undefined}

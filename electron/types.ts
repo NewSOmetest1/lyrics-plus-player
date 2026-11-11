@@ -114,6 +114,14 @@ export interface MusicFolderRemoveResult {
   removedTracks: number;
 }
 
+/** Result of deleting one library track's audio file from disk. */
+export interface TrackFileDeleteResult {
+  path: string;
+  title: string;
+  /** True when the record existed but the file was already gone. */
+  fileMissing: boolean;
+}
+
 export interface MusicFolderRescanResult {
   folders: MusicFolder[];
   summary: ScanSummary | null;
@@ -136,6 +144,21 @@ export interface SpotifyLikedTrackInput {
   durationMs: number;
   coverUrl: string | null;
   spotifyUrl: string;
+  /** Local file path, used by the renderer's optimistic Liked Songs row. */
+  localPath?: string | null;
+}
+
+/** Persisted artist profile used by cards and artist pages. */
+export interface SpotifyArtistCacheEntry {
+  id: string;
+  name: string;
+  imageUrl: string | null;
+  genres: string[];
+  followers: number;
+  monthlyListeners: number;
+  popularity: number;
+  spotifyUrl: string;
+  fetchedAt: number;
 }
 
 /** One track from the user's Spotify liked-songs collection. */
@@ -228,6 +251,8 @@ export interface SpotifyArtistCatalog {
   artist: SpotifyArtistSummary;
   topTracks: SpotifyCatalogTrack[];
   albums: SpotifyAlbumSummary[];
+  /** Newest release from Spotify's DATE_DESC discography query. */
+  latestRelease: SpotifyAlbumSummary | null;
   warnings: string[];
 }
 

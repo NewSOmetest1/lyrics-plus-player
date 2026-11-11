@@ -225,7 +225,7 @@ export function DownloadDrawer() {
             </button>
           </div>
 
-          <div className="no-scrollbar max-h-[min(52vh,420px)] min-h-0 overflow-y-auto p-1.5">
+          <div className="max-h-[min(52vh,420px)] min-h-0 overflow-y-auto p-1.5">
             {tasks.length === 0 ? (
               <div className="flex flex-col items-center px-4 py-10 text-center">
                 <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.05] text-white/25">

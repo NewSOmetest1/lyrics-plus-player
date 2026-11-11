@@ -294,7 +294,7 @@ export function StatsView() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-6 pb-8 pt-6 lg:px-8">
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-8 pt-6 lg:px-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.22em] text-accent/80">

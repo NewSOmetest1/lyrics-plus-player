@@ -208,6 +208,11 @@ interface PlayerState {
   selectedAlbumCoverUrl: string | null;
   selectedAlbumReleaseDate: string | null;
   selectedAlbumTotalTracks: number;
+  /** Target row to reveal and highlight after navigation. */
+  focusTrackId: string | null;
+  focusTrackTitle: string | null;
+  focusAlbumId: string | null;
+  focusAlbumTitle: string | null;
   history: NavigationEntry[];
   currentIndex: number;
   lyricsMode: LyricsMode;
@@ -251,8 +256,15 @@ interface PlayerState {
   setView: (view: AppView) => void;
   setLibrarySection: (section: LibrarySection) => void;
   openPlaylist: (playlistId: string) => void;
-  openArtist: (artistName: string, spotifyArtistId?: string) => void;
-  openAlbum: (album: SpotifyAlbumSummary) => void;
+  openArtist: (
+    artistName: string,
+    spotifyArtistId?: string,
+    focus?: { albumId?: string; albumTitle?: string },
+  ) => void;
+  openAlbum: (
+    album: SpotifyAlbumSummary,
+    focus?: { trackId?: string; trackTitle?: string },
+  ) => void;
   navigate: (entry: NavigationEntry) => void;
   goBack: () => void;
   goForward: () => void;
@@ -294,6 +306,10 @@ function normalizeNavigationEntry(entry: NavigationEntry): NavigationEntry {
       ...(entry.spotifyArtistId
         ? { spotifyArtistId: entry.spotifyArtistId }
         : {}),
+      ...(entry.focusAlbumId ? { focusAlbumId: entry.focusAlbumId } : {}),
+      ...(entry.focusAlbumTitle
+        ? { focusAlbumTitle: entry.focusAlbumTitle }
+        : {}),
     };
   }
   if (entry.type === "album-detail") {
@@ -305,6 +321,10 @@ function normalizeNavigationEntry(entry: NavigationEntry): NavigationEntry {
       ...(entry.coverUrl ? { coverUrl: entry.coverUrl } : {}),
       ...(entry.releaseDate ? { releaseDate: entry.releaseDate } : {}),
       ...(entry.totalTracks ? { totalTracks: entry.totalTracks } : {}),
+      ...(entry.focusTrackId ? { focusTrackId: entry.focusTrackId } : {}),
+      ...(entry.focusTrackTitle
+        ? { focusTrackTitle: entry.focusTrackTitle }
+        : {}),
     };
   }
   return entry;
@@ -329,6 +349,10 @@ function navigationState(entry: NavigationEntry): Partial<PlayerState> {
     selectedAlbumCoverUrl: null,
     selectedAlbumReleaseDate: null,
     selectedAlbumTotalTracks: 0,
+    focusTrackId: null,
+    focusTrackTitle: null,
+    focusAlbumId: null,
+    focusAlbumTitle: null,
     search: "",
   };
 
@@ -353,6 +377,8 @@ function navigationState(entry: NavigationEntry): Partial<PlayerState> {
         librarySection: "artists",
         selectedArtistName: entry.artistId,
         selectedArtistSpotifyId: entry.spotifyArtistId ?? null,
+        focusAlbumId: entry.focusAlbumId ?? null,
+        focusAlbumTitle: entry.focusAlbumTitle ?? null,
       };
     case "album-detail":
       return {
@@ -365,6 +391,8 @@ function navigationState(entry: NavigationEntry): Partial<PlayerState> {
         selectedAlbumCoverUrl: entry.coverUrl ?? null,
         selectedAlbumReleaseDate: entry.releaseDate ?? null,
         selectedAlbumTotalTracks: entry.totalTracks ?? 0,
+        focusTrackId: entry.focusTrackId ?? null,
+        focusTrackTitle: entry.focusTrackTitle ?? null,
       };
     case "playlist":
       return {
@@ -434,6 +462,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   selectedAlbumCoverUrl: null,
   selectedAlbumReleaseDate: null,
   selectedAlbumTotalTracks: 0,
+  focusTrackId: null,
+  focusTrackTitle: null,
+  focusAlbumId: null,
+  focusAlbumTitle: null,
   history: [{ type: "library", section: "tracks" }],
   currentIndex: 0,
   lyricsMode: "karaoke",
@@ -854,10 +886,16 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   openPlaylist: (playlistId) =>
     get().navigate({ type: "playlist", playlistId }),
 
-  openArtist: (artistId, spotifyArtistId) =>
-    get().navigate({ type: "artist-detail", artistId, spotifyArtistId }),
+  openArtist: (artistId, spotifyArtistId, focus) =>
+    get().navigate({
+      type: "artist-detail",
+      artistId,
+      spotifyArtistId,
+      ...(focus?.albumId ? { focusAlbumId: focus.albumId } : {}),
+      ...(focus?.albumTitle ? { focusAlbumTitle: focus.albumTitle } : {}),
+    }),
 
-  openAlbum: (album) =>
+  openAlbum: (album, focus) =>
     get().navigate({
       type: "album-detail",
       albumId: album.id,
@@ -866,6 +904,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       coverUrl: album.coverUrl,
       releaseDate: album.releaseDate,
       totalTracks: album.totalTracks,
+      ...(focus?.trackId ? { focusTrackId: focus.trackId } : {}),
+      ...(focus?.trackTitle ? { focusTrackTitle: focus.trackTitle } : {}),
     }),
 
   navigate: (entry) => {

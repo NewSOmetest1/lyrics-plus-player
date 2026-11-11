@@ -26,12 +26,17 @@ import type {
 import { cn } from "@/lib/cn";
 import { formatCount, formatTime, formatTimeLong } from "@/lib/format";
 import { findLocalTrackForSpotify } from "@/lib/spotifyMatch";
+import {
+  openArtistForAlbum,
+  openCatalogTrackAlbum,
+} from "@/lib/navigationTargets";
 import { useArtistGroups } from "@/hooks/useArtistGroups";
 import { useCoverPalette } from "@/hooks/useCoverPalette";
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePlayerStore } from "@/store/playerStore";
 import { isArtistFollowed, useReleasesStore } from "@/store/releasesStore";
 import { useSpotifyCatalogStore } from "@/store/spotifyCatalogStore";
+import { useArtistCacheStore } from "@/store/artistCacheStore";
 import { useDownloadStore } from "@/store/downloadStore";
 import { useToastStore } from "@/store/toastStore";
 import { CoverArt } from "@/components/ui/CoverArt";
@@ -60,6 +65,23 @@ function downloadRequest(track: SpotifyCatalogTrack): DownloadRequest {
     coverUrl: track.coverUrl,
     spotifyUrl: track.spotifyUrl,
   };
+}
+
+/** Normalized YYYY-MM-DD, even when Spotify reports only a year or month. */
+function releaseDateKey(album: SpotifyAlbumSummary): string {
+  const raw = album.releaseDate.trim();
+  if (!raw) return "";
+  // Partner releases sometimes report `2026` even with precision "day", so
+  // infer the granularity from the string itself instead of trusting it.
+  if (raw.length >= 10) return raw.slice(0, 10);
+  if (raw.length >= 7) return `${raw.slice(0, 7)}-01`;
+  return `${raw.slice(0, 4)}-01-01`;
+}
+
+/** Local calendar date as YYYY-MM-DD so comparisons ignore time zones. */
+function todayKey(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
 function SectionHeading({
@@ -164,9 +186,18 @@ const PopularTrackRow = memo(function PopularTrackRow({
           className="h-8 w-8"
         />
         <div className="min-w-0">
-          <p
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              void openCatalogTrackAlbum(track, () => {
+                if (local) onPlay(local);
+              });
+            }}
+            onDoubleClick={(event) => event.stopPropagation()}
+            title={track.title}
             className={cn(
-              "truncate text-[12px] font-semibold",
+              "block max-w-full truncate text-left text-[12px] font-semibold transition-colors hover:underline hover:decoration-white/20 hover:underline-offset-2",
               active
                 ? "text-accent"
                 : local
@@ -175,15 +206,29 @@ const PopularTrackRow = memo(function PopularTrackRow({
             )}
           >
             {track.title}
-          </p>
+          </button>
           <p className="mt-0.5 truncate text-[10.5px] text-white/30">
             {track.artist}
           </p>
         </div>
       </div>
 
-      <span className="hidden min-w-0 truncate text-[11px] text-white/30 md:block">
-        {track.album}
+      <span className="hidden min-w-0 truncate md:block">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            openArtistForAlbum(track.artist, {
+              id: track.albumId,
+              title: track.album,
+            });
+          }}
+          onDoubleClick={(event) => event.stopPropagation()}
+          title={track.album}
+          className="block max-w-full truncate text-left text-[11px] text-white/30 transition hover:text-white/65 hover:underline hover:decoration-white/20 hover:underline-offset-2"
+        >
+          {track.album}
+        </button>
       </span>
 
       <div className="flex justify-end">
@@ -211,6 +256,8 @@ export function ArtistDetailView() {
     (state) => state.selectedArtistSpotifyId,
   );
   const openAlbum = usePlayerStore((state) => state.openAlbum);
+  const focusAlbumId = usePlayerStore((state) => state.focusAlbumId);
+  const focusAlbumTitle = usePlayerStore((state) => state.focusAlbumTitle);
   const currentTrack = usePlayerStore((state) => state.currentTrack);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const playTrack = usePlayerStore((state) => state.playTrack);
@@ -254,6 +301,12 @@ export function ArtistDetailView() {
       ? localArtist?.name ?? selectedArtistName ?? ""
       : selectedArtistName ?? "";
 
+  const cachedArtist = useArtistCacheStore((state) => {
+    const key = artistName.trim().toLocaleLowerCase();
+    return key ? (state.byName[key] ?? null) : null;
+  });
+  const rememberArtist = useArtistCacheStore((state) => state.remember);
+
   const followedArtistId = useMemo(() => {
     const needle = artistName.trim().toLocaleLowerCase();
     if (!needle) return "";
@@ -271,6 +324,8 @@ export function ArtistDetailView() {
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [albumPending, setAlbumPending] = useState<string | null>(null);
+  const [highlightAlbum, setHighlightAlbum] = useState<string | null>(null);
+  const albumRefs = useRef(new Map<string, HTMLDivElement>());
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -324,6 +379,41 @@ export function ArtistDetailView() {
   const localTracks = localArtist?.tracks ?? [];
   const popularTracks = catalog?.topTracks ?? [];
   const albums = catalog?.albums ?? [];
+  const latestReleaseId = catalog?.latestRelease?.id ?? null;
+  const preReleaseCutoff = useMemo(todayKey, []);
+  const avatarUrl = profile?.imageUrl ?? cachedArtist?.imageUrl ?? null;
+
+  useEffect(() => {
+    if (profile) rememberArtist(profile);
+  }, [profile, rememberArtist]);
+
+  useEffect(() => {
+    if (!focusAlbumId && !focusAlbumTitle) return;
+    if (albums.length === 0) return;
+    const wantedTitle = focusAlbumTitle?.trim().toLocaleLowerCase() ?? "";
+    const target =
+      albums.find((album) => focusAlbumId && album.id === focusAlbumId) ??
+      (wantedTitle
+        ? albums.find(
+            (album) => album.title.trim().toLocaleLowerCase() === wantedTitle,
+          )
+        : undefined);
+    if (!target) return;
+    setHighlightAlbum(target.id);
+    const frame = requestAnimationFrame(() => {
+      albumRefs.current
+        .get(target.id)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [albums, focusAlbumId, focusAlbumTitle]);
+
+  useEffect(() => {
+    if (!highlightAlbum) return;
+    const clear = () => setHighlightAlbum(null);
+    window.addEventListener("pointerdown", clear);
+    return () => window.removeEventListener("pointerdown", clear);
+  }, [highlightAlbum]);
 
   const popularMatches = useMemo(() => {
     const matches = new Map<string, Track | null>();
@@ -497,7 +587,7 @@ export function ArtistDetailView() {
     <div className="flex h-full min-h-0 flex-col">
       <div
         ref={scrollRef}
-        className="no-scrollbar min-h-0 flex-1 overflow-y-auto"
+        className="min-h-0 flex-1 overflow-y-auto"
       >
         <header className="relative shrink-0 overflow-hidden px-6 pb-6 pt-5 lg:px-8">
           <div
@@ -523,9 +613,9 @@ export function ArtistDetailView() {
               transition={{ duration: 0.35, ease: [0.2, 0, 0, 1] }}
               className="shrink-0"
             >
-              {profile?.imageUrl ? (
+              {avatarUrl ? (
                 <SpotifyArtwork
-                  url={profile.imageUrl}
+                  url={avatarUrl}
                   rounded="rounded-full"
                   className="aspect-square w-36 shadow-[0_24px_60px_-18px_rgba(0,0,0,.85)] sm:w-44"
                 />
@@ -748,14 +838,25 @@ export function ArtistDetailView() {
               />
               <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
                 {albums.map((album) => (
-                  <SpotifyAlbumCard
+                  <div
                     key={album.id}
-                    album={album}
-                    tracks={tracks}
-                    downloading={albumPending === album.id}
-                    onDownload={() => void downloadAlbum(album)}
-                    onOpen={() => openAlbum(album)}
-                  />
+                    ref={(node) => {
+                      if (node) albumRefs.current.set(album.id, node);
+                      else albumRefs.current.delete(album.id);
+                    }}
+                    className="min-w-0"
+                  >
+                    <SpotifyAlbumCard
+                      album={album}
+                      tracks={tracks}
+                      downloading={albumPending === album.id}
+                      latest={album.id === latestReleaseId}
+                      preRelease={releaseDateKey(album) > preReleaseCutoff}
+                      highlighted={highlightAlbum === album.id}
+                      onDownload={() => void downloadAlbum(album)}
+                      onOpen={() => openAlbum(album)}
+                    />
+                  </div>
                 ))}
               </div>
             </section>
