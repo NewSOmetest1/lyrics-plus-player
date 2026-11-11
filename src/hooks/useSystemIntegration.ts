@@ -116,18 +116,24 @@ export function useSystemIntegration(): void {
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const durationMs = usePlayerStore((state) => state.durationMs);
 
-  const artworkRef = useRef<string | null>(null);
+  const artworkRef = useRef<{ trackId: number; artwork: string | null } | null>(
+    null,
+  );
   const trackRef = useRef<Track | null>(null);
   const positionStateRef = useRef({ at: 0, position: -1 });
   const discordRef = useRef({ at: 0, position: -1, playing: false, trackId: -1 });
 
-  const sendDiscord = (artwork: string | null, force = false) => {
+  const sendDiscord = (force = false) => {
     const state = usePlayerStore.getState();
     const current = state.currentTrack;
     if (!current) {
       if (force) void backend.updateDiscordPresence(null);
       return;
     }
+    const artwork =
+      artworkRef.current?.trackId === current.id
+        ? artworkRef.current.artwork
+        : null;
     const previous = discordRef.current;
     const now = performance.now();
     const expected = previous.playing
@@ -225,7 +231,7 @@ export function useSystemIntegration(): void {
       artworkRef.current = null;
       session.metadata = null;
       session.playbackState = "none";
-      sendDiscord(null, true);
+      sendDiscord(true);
       return;
     }
 
@@ -233,15 +239,25 @@ export function useSystemIntegration(): void {
     trackRef.current = track;
     if (previousTrack?.coverPath !== track.coverPath) {
       artworkRef.current = null;
+    } else if (artworkRef.current) {
+      // Same cover file: keep it attached to the new track id.
+      artworkRef.current = {
+        trackId: track.id,
+        artwork: artworkRef.current.artwork,
+      };
     }
-    const immediate = artworkRef.current;
+    const immediate = artworkRef.current?.artwork ?? null;
     session.metadata = metadataFor(track, immediate);
 
     void artworkDataUrl(track).then((artwork) => {
       if (cancelled) return;
-      artworkRef.current = artwork;
+      // The fetch can resolve after the user switched tracks but before this
+      // effect's cleanup ran; never attach the old cover to the new track.
+      const current = usePlayerStore.getState().currentTrack;
+      if (!current || current.id !== track.id) return;
+      artworkRef.current = { trackId: track.id, artwork };
       session.metadata = metadataFor(track, artwork);
-      sendDiscord(artwork, true);
+      sendDiscord(true);
     });
 
     return () => {
@@ -260,7 +276,7 @@ export function useSystemIntegration(): void {
           : "paused"
         : "none";
     }
-    if (track) sendDiscord(artworkRef.current, true);
+    if (track) sendDiscord(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [track?.id, isPlaying]);
 
@@ -301,7 +317,7 @@ export function useSystemIntegration(): void {
       }
 
       // Catch seeks that happen while the track keeps playing.
-      sendDiscord(artworkRef.current);
+      sendDiscord();
     };
 
     update(true);
