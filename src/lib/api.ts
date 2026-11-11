@@ -23,6 +23,7 @@ import type {
   SpotifyProfile,
   SpotifySearchCatalog,
   StatsData,
+  StatsDayRecord,
   Track,
   TrackFileDeleteResult,
   TrackStatsRecord,
@@ -206,9 +207,55 @@ function readDemoStats(): StatsData {
         };
       }
     }
-    return { version: 1, tracks };
+
+    const days: Record<string, StatsDayRecord> = {};
+    if (parsed.days && typeof parsed.days === "object") {
+      for (const [key, value] of Object.entries(parsed.days)) {
+        if (!value || typeof value !== "object") continue;
+        const raw = value as Partial<StatsDayRecord>;
+        const dayTracks: Record<string, number> = {};
+        if (raw.tracks && typeof raw.tracks === "object") {
+          for (const [trackPath, amount] of Object.entries(raw.tracks)) {
+            const listenTime = roundSeconds(Number(amount) || 0);
+            if (listenTime > 0) dayTracks[trackPath] = listenTime;
+          }
+        }
+        days[key] = {
+          listenTime: roundSeconds(Number(raw.listenTime) || 0),
+          plays: Math.max(0, Math.floor(Number(raw.plays) || 0)),
+          tracks: dayTracks,
+        };
+      }
+    }
+
+    return { version: 2, tracks, days };
   } catch {
-    return { version: 1, tracks: {} };
+    return { version: 2, tracks: {}, days: {} };
+  }
+}
+
+function demoDateKey(timestamp: number): string {
+  const date = new Date(timestamp);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function demoCreditDay(
+  data: StatsData,
+  trackPath: string,
+  durationSec: number,
+  play: boolean,
+): void {
+  const delta = roundSeconds(durationSec);
+  if (delta <= 0 && !play) return;
+  const key = demoDateKey(Date.now());
+  const day = (data.days[key] ??= { listenTime: 0, plays: 0, tracks: {} });
+  if (play) day.plays += 1;
+  if (delta > 0) {
+    day.listenTime = roundSeconds(day.listenTime + delta);
+    day.tracks[trackPath] = roundSeconds(
+      (day.tracks[trackPath] ?? 0) + delta,
+    );
   }
 }
 
@@ -222,14 +269,16 @@ function writeDemoStats(stats: StatsData): void {
 
 function demoTrackPlayed(trackPath: string, durationSec: number): void {
   const data = readDemoStats();
+  const duration = roundSeconds(durationSec);
   const existing = data.tracks[trackPath];
   data.tracks[trackPath] = {
     playCount: (existing?.playCount ?? 0) + 1,
     totalListenTime: roundSeconds(
-      (existing?.totalListenTime ?? 0) + roundSeconds(durationSec),
+      (existing?.totalListenTime ?? 0) + duration,
     ),
     lastPlayedTimestamp: Date.now(),
   };
+  demoCreditDay(data, trackPath, duration, true);
   writeDemoStats(data);
 }
 
@@ -237,9 +286,11 @@ function demoAddListenTime(trackPath: string, durationSec: number): void {
   const data = readDemoStats();
   const existing = data.tracks[trackPath];
   if (!existing) return;
+  const duration = roundSeconds(durationSec);
   existing.totalListenTime = roundSeconds(
-    existing.totalListenTime + roundSeconds(durationSec),
+    existing.totalListenTime + duration,
   );
+  demoCreditDay(data, trackPath, duration, false);
   writeDemoStats(data);
 }
 

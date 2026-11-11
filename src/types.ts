@@ -126,9 +126,21 @@ export interface TrackStatsRecord {
   lastPlayedTimestamp: number;
 }
 
+/** One local calendar day of listening, keyed by `YYYY-MM-DD`. */
+export interface StatsDayRecord {
+  /** Actual listening time on this day, in seconds. */
+  listenTime: number;
+  /** Credited plays on this day. */
+  plays: number;
+  /** Listening time per track path on this day, in seconds. */
+  tracks: Record<string, number>;
+}
+
 export interface StatsData {
-  version: 1;
+  version: 2;
   tracks: Record<string, TrackStatsRecord>;
+  /** Daily buckets for the activity heatmap and listening memories. */
+  days: Record<string, StatsDayRecord>;
 }
 
 export interface StatsTrackEntry extends TrackStatsRecord {

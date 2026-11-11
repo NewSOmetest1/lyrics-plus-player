@@ -21,6 +21,7 @@ import { useTrackMenuStore } from "@/store/contextMenuStore";
 import { CoverArt } from "@/components/ui/CoverArt";
 import { EqualizerBars } from "@/components/ui/EqualizerBars";
 import { ArtistLinks } from "@/components/artists/ArtistLinks";
+import { ListeningActivity } from "@/components/stats/ListeningActivity";
 
 interface TopArtist {
   name: string;
@@ -194,14 +195,16 @@ export function StatsView() {
   }, [stats, trackByPath]);
 
   const totals = useMemo(() => {
+    // All-time totals include listening for files that are no longer part of
+    // the library (moved or deleted), matching the activity calendar.
     let listenTime = 0;
     let plays = 0;
-    for (const entry of entries) {
-      listenTime += entry.totalListenTime;
-      plays += entry.playCount;
+    for (const record of Object.values(stats?.tracks ?? {})) {
+      listenTime += record.totalListenTime;
+      plays += record.playCount;
     }
     return { listenTime, plays };
-  }, [entries]);
+  }, [stats]);
 
   const topArtists = useMemo<TopArtist[]>(() => {
     const buckets = new Map<
@@ -357,6 +360,12 @@ export function StatsView() {
             delay={90}
           />
         </div>
+
+        <ListeningActivity
+          days={stats?.days ?? {}}
+          trackByPath={trackByPath}
+          onPlay={(track) => void playTrack(track)}
+        />
 
         <section className="mt-7">
           <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
