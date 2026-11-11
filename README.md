@@ -2,10 +2,10 @@
 
 **English** · [Русский](README.ru.md)
 
-A local-first desktop music player for Linux with karaoke-grade lyrics, a
-Spotify release feed and an external lossless downloader. Built with
-**Electron 45 (Chromium)**, **React 18**, **TypeScript**, **Tailwind**,
-**framer-motion** and **Zustand**.
+A local-first desktop music player for Linux with karaoke-grade lyrics,
+listening stats, Discord Rich Presence, a Spotify release feed and an external
+lossless downloader. Built with **Electron 45 (Chromium)**, **React 18**,
+**TypeScript**, **Tailwind**, **framer-motion** and **Zustand**.
 
 ![Lyrics+](assets/icon.png)
 
@@ -38,8 +38,14 @@ Screenshots use the built-in demo library from the browser preview.
   cancel tasks and get an automatic library rescan when a batch finishes. The
   engine is an external Python script, so you can plug in a custom downloader
   for the sources you use.
-- **Listening stats** — all-time totals, top artists and tracks, plus a
-  one-click "All-Time Top" playlist.
+- **Listening stats** — all-time totals (including files no longer in the
+  library), top artists and tracks, a 53-week listening heatmap with daily
+  details, "On This Day" memories from previous years and a one-click
+  "All-Time Top" playlist.
+- **Discord Rich Presence** — shows the current track, artist, album, playback
+  state and cover art in Discord. Embedded covers are uploaded to a public image
+  host because Discord cannot read local files; no bot token or client secret is
+  required.
 - **Lucid UI** — frosted-glass surfaces, cover-colored ambient glow, optional
   noise overlay, frameless window with custom controls and crossfade.
 - **Full settings panel** — lyrics timing, font size, alignment, transparency,
@@ -99,8 +105,19 @@ Bundles are written under `release/`.
 5. Configure the downloader in **Settings → Downloader**: Python/venv path,
    script location and destination music directory. You can point it at your
    own custom script to download from other sources.
-6. Open **Settings** (gear icon in the sidebar footer) to tune lyrics, folders,
+6. Open **Stats** to see all-time totals, the listening heatmap and **On This
+   Day** memories. Click a track in a memory card to play it.
+7. Open **Settings** (gear icon in the sidebar footer) to tune lyrics, folders,
    providers and downloads.
+
+### Listening stats
+
+**Stats** in the sidebar shows all-time listening time and play counts, top
+artists and tracks, a year-long activity heatmap and **On This Day** cards for
+the closest listening day within three days of today's date in each of the
+previous three years. Hover a heatmap cell for the exact time and plays; click a
+track in a memory card to play it. Totals include listening recorded for files
+that have since been moved or removed from the library.
 
 ### Music folders
 
@@ -120,12 +137,19 @@ library database. Audio files on disk are never deleted.
 | `Q` | Toggle queue |
 | `L` | Toggle Library / Now Playing |
 | `/` | Jump to library search |
+| `Ctrl+F` | Search within lyrics (player view) |
 | `Esc` | Close queue / settings or exit immersive mode |
+
+Shortcuts are layout-independent: on Russian or other non-Latin layouts the
+same physical keys work (`F` stays on the `F` key). Letter shortcuts follow the
+active Latin layout when one is selected, so Dvorak and AZERTY mnemonics keep
+working.
 
 ## Settings
 
 Settings are stored in `library.json` in Electron's user-data directory
 (`~/.config/lyrics-plus-player/library.json` on Linux) and applied instantly.
+Listening history lives in `stats.json` next to it.
 
 ### Lyrics & Display
 
@@ -153,6 +177,19 @@ result is used only when no provider returns timestamps.
 
 Local `.lrc` sidecars are checked before any provider. A failed online lookup
 never blocks playback.
+
+### Discord Rich Presence
+
+Set **Discord application id** under **Settings → Providers → Discord Rich
+Presence** to the Application ID of an app you created at
+discord.com/developers/applications. Leave it empty to disable the integration.
+Only the public Application ID is needed — never use a bot token or client
+secret. The Discord desktop client must be running.
+
+Embedded artwork is resized, uploaded to a public image host (`uguu.se`, with
+`pomf2.lain.la` as a fallback) and validated before it is sent to Discord.
+Temporary URLs are refreshed before they expire. If a track has no embedded
+cover, or the upload fails, the app falls back to iTunes song and album artwork.
 
 ### Music Folders
 
@@ -184,6 +221,8 @@ electron/
   lyrics.ts      sidecar → provider pipeline → JSON cache
   media.ts       media:// audio + cover protocol with Range support
   store.ts       library/settings/lyrics JSON persistence
+  stats.ts       daily listening buckets, all-time totals, stats.json
+  discord.ts     Discord Rich Presence and cover upload/validation cache
   downloader.ts  external downloader process, queue, progress parsing
   releases.ts    Spotify release feed, previews, download status
   spotify-auth.cjs   Spotify cookie capture and storage
@@ -201,11 +240,11 @@ src/
     player/      now playing view/panel, player bar, queue
     releases/    New Releases feed and download drawer
     settings/    Options & Providers modal
-    stats/       listening statistics
+    stats/       listening statistics, activity heatmap, memories
     ui/          cover art, buttons, toaster, equalizer
   data/          demo library for browser preview
-  hooks/         smooth 60 fps position, cover palette
-  lib/           Electron bridge, AudioEngine, LRC parser, colors
+  hooks/         smooth 60 fps position, cover palette, MPRIS/Discord bridge
+  lib/           Electron bridge, AudioEngine, LRC parser, colors, stats helpers
   store/         Zustand player, settings, releases, downloads and toast stores
 docs/
   screenshots/   README screenshots
@@ -217,7 +256,8 @@ The renderer owns playback through a single `HTMLAudioElement`. It emits a
 snapshot every 33 ms with
 `{ path, positionMs, durationMs, paused, volume, eof, bitPerfect }`;
 `ended` fires once per track. The main process only handles files, dialogs,
-scanning, lyrics, releases, downloads and the `media://` protocol.
+scanning, lyrics, stats, releases, downloads, Discord RPC and the `media://`
+protocol.
 
 Track IDs are stable 52-bit FNV-1a hashes of the file path. Cover art is written
 to `$XDG_CONFIG_HOME/lyrics-plus-player/covers` and served through `media://`.
@@ -229,14 +269,21 @@ to `$XDG_CONFIG_HOME/lyrics-plus-player/covers` and served through `media://`.
   `--ozone-platform=wayland` when `WAYLAND_DISPLAY` is set.
 - **Sandbox** — `contextIsolation: true`, `nodeIntegration: false`,
   `sandbox: true`; the preload is bundled as CommonJS.
+- **Listening history** — stored in `stats.json` next to `library.json`. Daily
+  buckets power the heatmap and memories; legacy all-time stats are folded into
+  the day of their last play the first time the updated app reads them.
 - **Legacy Tauri backend** — archived under `legacy-tauri/` for reference only.
 
 ## Troubleshooting
 
 - **Blank window** — run `npm run dev` and check the terminal; the renderer log
   is forwarded in development.
-- **Covers missing** — only embedded artwork is extracted. Embed art in the file
-  or extend `electron/scanner.ts`.
+- **Covers missing in the library** — only embedded artwork is extracted for
+  local views. Embed art in the file or extend `electron/scanner.ts`.
+- **No cover in Discord** — check the Application ID under Settings → Providers
+  and keep the Discord desktop client running. The app uploads embedded art to a
+  public image host and falls back to iTunes artwork; a track with no embedded
+  cover and no catalog match will show no image.
 - **No online lyrics** — check network access to `lrclib.net`; requests carry a
   descriptive `User-Agent`. Enable the providers you want in Settings.
 - **Spotify provider empty** — `sp_dc` cookies expire; paste a fresh value.
