@@ -492,25 +492,50 @@ class AudioEngine {
       this.snapshot.paused = true;
       this.emit();
     });
-    audio.addEventListener("ended", () => {
-      if (index !== this.activeDeck) return;
-      this.snapshot.paused = true;
-      this.snapshot.eof = true;
-      this.snapshot.positionMs = this.snapshot.durationMs;
-      this.emit();
-      this.endedListeners.forEach((listener) => listener());
-    });
+    audio.addEventListener("ended", () => this.finishActiveDeck(index));
     audio.addEventListener("error", () => {
-      if (index !== this.activeDeck || !import.meta.env.DEV) return;
-      console.error(
-        "[audio] media error",
-        audio.error?.code,
-        audio.error?.message,
-        audio.src,
+      if (index !== this.activeDeck || !this.snapshot.path) return;
+      if (import.meta.env.DEV) {
+        console.error(
+          "[audio] media error",
+          audio.error?.code,
+          audio.error?.message,
+          audio.src,
+        );
+      }
+
+      // A corrupt trailing frame makes Chromium's demuxer fail without ever
+      // firing `ended`, which used to leave repeat/skip logic waiting forever.
+      // Once playback has actually started, a fatal media error means this
+      // track cannot continue, so treat it as end-of-track. A failure before
+      // playback starts only pauses, so an unsupported file cannot loop.
+      const lastPosition = Math.max(
+        audio.currentTime,
+        this.snapshot.positionMs / 1000,
       );
+      if (lastPosition > 1) {
+        this.finishActiveDeck(index);
+        return;
+      }
+      if (this.snapshot.eof) return;
+      this.snapshot.paused = true;
+      this.emit();
     });
 
     return deck;
+  }
+
+  /**
+   * Chromium sometimes reports a fatal media error instead of `ended` when the
+   * last frame is damaged. Both paths must complete the track exactly once.
+   */
+  private finishActiveDeck(index: number): void {
+    if (index !== this.activeDeck || this.snapshot.eof) return;
+    this.snapshot.paused = true;
+    this.snapshot.eof = true;
+    this.snapshot.positionMs = this.snapshot.durationMs;
+    this.emit();
+    this.endedListeners.forEach((listener) => listener());
   }
 
   /**
@@ -677,7 +702,17 @@ class AudioEngine {
   resume() {
     this.ensureGraph();
     const deck = this.decks[this.activeDeck];
-    if (this.snapshot.eof || this.snapshot.positionMs >= this.snapshot.durationMs) {
+    if (deck.audio.error && this.snapshot.path) {
+      // A demuxer error parks the element in a failed state where play() keeps
+      // rejecting. Re-selecting the source clears it so repeat-one can start
+      // the track again after the error fallback above.
+      deck.audio.src = mediaAudioUrl(this.snapshot.path);
+      this.snapshot.positionMs = 0;
+      this.snapshot.eof = false;
+    } else if (
+      this.snapshot.eof ||
+      this.snapshot.positionMs >= this.snapshot.durationMs
+    ) {
       deck.audio.currentTime = 0;
       this.snapshot.positionMs = 0;
       this.snapshot.eof = false;
