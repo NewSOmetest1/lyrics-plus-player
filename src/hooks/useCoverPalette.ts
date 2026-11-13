@@ -54,27 +54,46 @@ function loadPalette(url: string): Promise<Palette | null> {
   return task;
 }
 
-export function useCoverPalette(url: string | null, seed: string): Palette {
+export function useCoverPalette(
+  url: string | null,
+  seed: string,
+  fallbackUrl: string | null = null,
+): Palette {
   const fallback = useMemo(() => paletteFromHash(seed), [seed]);
   const [palette, setPalette] = useState<Palette>(fallback);
 
   useEffect(() => {
-    if (!url) {
+    const candidates = [
+      ...new Set(
+        [url, fallbackUrl].filter((item): item is string => Boolean(item)),
+      ),
+    ];
+    if (candidates.length === 0) {
       setPalette(fallback);
       return;
     }
 
     // Keep the previous track's palette until the new cover is decoded. A hash
-    // fallback in between would flash a random hue before the crossfade.
+    // fallback in between would flash a random hue before the crossfade. If the
+    // preferred source is gone (pruned palette file), try the next artwork
+    // before giving up.
     let cancelled = false;
-    void loadPalette(url).then((next) => {
-      if (!cancelled && next) setPalette(next);
+    void loadFirstPalette(candidates).then((next) => {
+      if (!cancelled) setPalette(next ?? fallback);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [url, fallback]);
+  }, [url, fallbackUrl, fallback]);
 
   return palette;
+}
+
+async function loadFirstPalette(urls: string[]): Promise<Palette | null> {
+  for (const url of urls) {
+    const palette = await loadPalette(url);
+    if (palette) return palette;
+  }
+  return null;
 }

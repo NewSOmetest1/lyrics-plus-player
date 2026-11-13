@@ -93,6 +93,7 @@ export function AmbientBackground() {
   const palette = useCoverPalette(
     coverPaletteUrl(track),
     track ? `${track.title}${track.album}` : "lyricsplus",
+    track ? coverUrl(track, true) : null,
   );
   const colorful = useSettingsStore((state) => state.ambientColorful);
   const noise = useSettingsStore((state) => state.noiseOverlay);
