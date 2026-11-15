@@ -458,8 +458,13 @@ export function PlaylistView() {
   const openRename = usePlaylistDialogStore((state) => state.openRename);
 
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [optionsPosition, setOptionsPosition] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const optionsRef = useRef<HTMLDivElement | null>(null);
+  const optionsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const optionsMenuRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const playlist = playlists.find((item) => item.id === selectedPlaylistId) ?? null;
@@ -609,10 +614,25 @@ export function PlaylistView() {
   useEffect(() => {
     if (!optionsOpen) return;
     const onPointerDown = (event: PointerEvent) => {
-      if (!optionsRef.current?.contains(event.target as Node)) setOptionsOpen(false);
+      const target = event.target as Node;
+      if (optionsButtonRef.current?.contains(target)) return;
+      if (optionsMenuRef.current?.contains(target)) return;
+      setOptionsOpen(false);
     };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOptionsOpen(false);
+    };
+    const close = () => setOptionsOpen(false);
     window.addEventListener("pointerdown", onPointerDown);
-    return () => window.removeEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
   }, [optionsOpen]);
 
   if (!playlist) return null;
@@ -628,6 +648,32 @@ export function PlaylistView() {
     setShuffle(true);
     const index = Math.floor(Math.random() * displayTracks.length);
     void playTrack(displayTracks[index], 0, displayTracks);
+  };
+
+  const toggleOptions = () => {
+    if (optionsOpen) {
+      setOptionsOpen(false);
+      return;
+    }
+    const rect = optionsButtonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = 208;
+    const margin = 8;
+    // Liked Songs only has Export; other playlists add rename and delete.
+    const expectedHeight = liked ? 64 : 140;
+    const spaceBelow = window.innerHeight - rect.bottom - 12;
+    const spaceAbove = rect.top - 12;
+    const openAbove = spaceBelow < expectedHeight && spaceAbove > spaceBelow;
+    setOptionsPosition({
+      left: Math.max(
+        margin,
+        Math.min(rect.left, window.innerWidth - width - margin),
+      ),
+      top: openAbove
+        ? Math.max(margin, rect.top - expectedHeight - 6)
+        : rect.bottom + 6,
+    });
+    setOptionsOpen(true);
   };
 
   const downloadMissing = async () => {
@@ -812,76 +858,87 @@ export function PlaylistView() {
               )}
 
               {!spotifyMode && (
-                <div ref={optionsRef} className="relative">
-                <button
-                  type="button"
-                  onClick={() => setOptionsOpen((value) => !value)}
-                  aria-label="Playlist options"
-                  title="Playlist options"
-                  className={cn(
-                    "flex h-9 w-9 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.05] text-white/45 transition hover:bg-white/[0.09] hover:text-white",
-                    optionsOpen && "bg-white/[0.1] text-white",
-                  )}
-                >
-                  <MoreHorizontal className="h-4 w-4" />
-                </button>
-                <AnimatePresence>
-                  {optionsOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -4, scale: 0.97 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: -3, scale: 0.98 }}
-                      transition={{ duration: 0.14 }}
-                      className="dropdown-menu absolute left-0 top-full z-30 mt-1.5 w-52 rounded-xl border border-white/10 bg-[#141419]/85 p-1 shadow-glass backdrop-blur-[20px]"
-                      role="menu"
-                    >
-                      {!liked && (
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => {
-                            setOptionsOpen(false);
-                            openRename(playlist);
+                <>
+                  <button
+                    ref={optionsButtonRef}
+                    type="button"
+                    onClick={toggleOptions}
+                    aria-label="Playlist options"
+                    aria-haspopup="menu"
+                    aria-expanded={optionsOpen}
+                    title="Playlist options"
+                    className={cn(
+                      "flex h-9 w-9 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.05] text-white/45 transition hover:bg-white/[0.09] hover:text-white",
+                      optionsOpen && "bg-white/[0.1] text-white",
+                    )}
+                  >
+                    <MoreHorizontal className="h-4 w-4" />
+                  </button>
+                  {createPortal(
+                    <AnimatePresence>
+                      {optionsOpen && optionsPosition && (
+                        <motion.div
+                          ref={optionsMenuRef}
+                          initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -3, scale: 0.98 }}
+                          transition={{ duration: 0.14 }}
+                          style={{
+                            left: optionsPosition.left,
+                            top: optionsPosition.top,
                           }}
-                          className="flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[11.5px] font-medium text-white/65 transition hover:bg-white/[0.07] hover:text-white"
+                          className="dropdown-menu fixed z-[190] w-52 rounded-xl border border-white/10 bg-[#141419]/85 p-1 shadow-glass backdrop-blur-[20px]"
+                          role="menu"
                         >
-                          <Pencil className="h-3.5 w-3.5 text-white/35" />
-                          Rename playlist
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setOptionsOpen(false);
-                          void exportM3U(playlist.id);
-                        }}
-                        className="flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[11.5px] font-medium text-white/65 transition hover:bg-white/[0.07] hover:text-white"
-                      >
-                        <Download className="h-3.5 w-3.5 text-white/35" />
-                        Export as .m3u
-                      </button>
-                      {!liked && (
-                        <>
-                          <div className="my-1 h-px bg-white/[0.07]" />
+                          {!liked && (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setOptionsOpen(false);
+                                openRename(playlist);
+                              }}
+                              className="flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[11.5px] font-medium text-white/65 transition hover:bg-white/[0.07] hover:text-white"
+                            >
+                              <Pencil className="h-3.5 w-3.5 text-white/35" />
+                              Rename playlist
+                            </button>
+                          )}
                           <button
                             type="button"
                             role="menuitem"
                             onClick={() => {
                               setOptionsOpen(false);
-                              setConfirmDelete(true);
+                              void exportM3U(playlist.id);
                             }}
-                            className="flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[11.5px] font-medium text-rose-300/80 transition hover:bg-rose-400/[0.08] hover:text-rose-200"
+                            className="flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[11.5px] font-medium text-white/65 transition hover:bg-white/[0.07] hover:text-white"
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            Delete playlist
+                            <Download className="h-3.5 w-3.5 text-white/35" />
+                            Export as .m3u
                           </button>
-                        </>
+                          {!liked && (
+                            <>
+                              <div className="my-1 h-px bg-white/[0.07]" />
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                  setOptionsOpen(false);
+                                  setConfirmDelete(true);
+                                }}
+                                className="flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[11.5px] font-medium text-rose-300/80 transition hover:bg-rose-400/[0.08] hover:text-rose-200"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                Delete playlist
+                              </button>
+                            </>
+                          )}
+                        </motion.div>
                       )}
-                    </motion.div>
+                    </AnimatePresence>,
+                    document.body,
                   )}
-                </AnimatePresence>
-              </div>
+                </>
               )}
             </div>
           </div>
