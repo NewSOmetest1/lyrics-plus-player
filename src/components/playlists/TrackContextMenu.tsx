@@ -168,6 +168,7 @@ export function TrackContextMenu() {
   const deleteFile = async () => {
     if (!deleteTarget) return;
     const target = deleteTarget;
+    if (typeof target.id !== "number") return;
     setDeleting(true);
     try {
       const player = usePlayerStore.getState();

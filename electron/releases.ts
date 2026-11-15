@@ -25,17 +25,11 @@ import type {
   TrackRecord,
 } from "./types";
 
-const REQUEST_TIMEOUT_MS = 15_000;
 const SYNC_CONCURRENCY = 6;
-const PREVIEW_CACHE_LIMIT = 500;
 /** Only releases from this window make up the feed. */
 const RECENT_RELEASE_DAYS = 28;
 const DISCOGRAPHY_LIMIT = 12;
 const SEARCH_LIMIT = 5;
-const previewCache = new Map<string, string | null>();
-
-const EMBED_USER_AGENT =
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 interface PersistedReleaseData {
   version: 1;
@@ -205,51 +199,6 @@ function releaseArtistFromTracks(
     }
   }
   return names.join(", ") || fallback;
-}
-
-/**
- * Spotify's Web API now returns `preview_url: null` for many tokens, but the
- * public embed player still ships the 30-second `audioPreview` URL. Resolve it
- * lazily in the main process so the renderer can play previews without CORS.
- */
-export async function resolvePreviewUrl(
-  trackId: string,
-): Promise<string | null> {
-  const id = trackId.trim();
-  if (!/^[A-Za-z0-9]{5,40}$/.test(id)) return null;
-  if (previewCache.has(id)) return previewCache.get(id) ?? null;
-
-  let resolved: string | null = null;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    const response = await fetch(
-      `https://open.spotify.com/embed/track/${id}`,
-      {
-        headers: {
-          Accept: "text/html",
-          "User-Agent": EMBED_USER_AGENT,
-        },
-        signal: controller.signal,
-      },
-    );
-    if (response.ok) {
-      const html = await response.text();
-      const match = /"audioPreview"\s*:\s*\{\s*"url"\s*:\s*"([^"]+)"/.exec(html);
-      const url = match?.[1]
-        .replace(/\\u002F/gi, "/")
-        .replace(/\\\//g, "/");
-      if (url?.startsWith("https://")) resolved = url;
-    }
-  } catch (error) {
-    console.warn("[releases] preview lookup failed:", error);
-  } finally {
-    clearTimeout(timer);
-  }
-
-  if (previewCache.size >= PREVIEW_CACHE_LIMIT) previewCache.clear();
-  previewCache.set(id, resolved);
-  return resolved;
 }
 
 async function spotifyCredentials(

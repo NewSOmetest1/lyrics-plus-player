@@ -1080,6 +1080,73 @@ export async function resolveLyrics(
   throw new Error("No lyrics found");
 }
 
+export interface StreamLyricsInput {
+  trackId?: string;
+  title: string;
+  artist: string;
+  album?: string;
+  durationMs?: number;
+}
+
+/**
+ * Lyrics for a virtual stream row. It has no local file, so the sidecar,
+ * embedded-tags and track-id cache paths are skipped; the online providers get
+ * the same title/artist/duration metadata they use for library tracks.
+ */
+export async function resolveStreamLyrics(
+  store: LibraryStore,
+  input: StreamLyricsInput,
+): Promise<LyricsPayload> {
+  const pseudo: TrackRecord = {
+    id: -1,
+    path: "",
+    title: input.title,
+    artist: input.artist,
+    album: input.album ?? "",
+    albumArtist: input.artist,
+    spotifyTrackId: input.trackId?.trim() || null,
+    genre: null,
+    year: null,
+    trackNo: null,
+    durationMs: Math.max(0, input.durationMs ?? 0),
+    format: "stream",
+    bitrate: null,
+    sampleRate: null,
+    bitDepth: null,
+    channels: null,
+    fileSize: 0,
+    fileName: "",
+    modifiedAt: 0,
+    coverPath: null,
+    coverFullPath: null,
+    hasEmbeddedLyrics: false,
+    addedAt: 0,
+  };
+
+  let fallback: { provider: string; content: string } | null = null;
+
+  for (const provider of parseProviders(store)) {
+    if (!provider.enabled || provider.id === "embedded") continue;
+    const result = await runProvider(provider.id, store, pseudo);
+    if (!result) continue;
+    if (result.instrumental) {
+      return buildPayload(-1, provider.id, "", true);
+    }
+    if (result.content) {
+      const payload = buildPayload(-1, provider.id, result.content);
+      if (payload.synced) return payload;
+      if (!fallback) {
+        fallback = { provider: provider.id, content: result.content };
+      }
+    }
+  }
+
+  if (fallback) {
+    return buildPayload(-1, fallback.provider, fallback.content);
+  }
+  throw new Error("No lyrics found");
+}
+
 /* ------------------------------------------------------------------------- */
 /* Provider diagnostics (Settings → Test Connection + scripts/test-providers) */
 /* ------------------------------------------------------------------------- */

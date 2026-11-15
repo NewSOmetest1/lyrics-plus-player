@@ -52,6 +52,9 @@ export type {
   SpotifySearchCatalog,
   SpotifyArtistCatalog,
   SpotifyAlbumCatalog,
+  PreviewLookup,
+  PreviewPlaybackSource,
+  PreviewSourceKind,
 } from "./types";
 
 export interface SpotifyAuthStatus {

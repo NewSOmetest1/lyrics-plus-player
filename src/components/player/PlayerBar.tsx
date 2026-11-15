@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 import { usePlayerStore } from "@/store/playerStore";
-import { useIsLiked, usePlaylistStore } from "@/store/playlistStore";
 import { useDownloadStore } from "@/store/downloadStore";
 import { useTrackMenuStore } from "@/store/contextMenuStore";
 import { useLucidSettingsStore } from "@/store/lucidSettingsStore";
@@ -27,6 +26,13 @@ import { IconButton } from "@/components/ui/IconButton";
 import { EqualizerBars } from "@/components/ui/EqualizerBars";
 import { ProgressBar } from "@/components/player/ProgressBar";
 import { VolumeControl } from "@/components/player/VolumeControl";
+import {
+  StreamSaveButton,
+  streamFormatLabel,
+  streamSourceLabel,
+  toggleTrackLike,
+  useTrackLiked,
+} from "@/components/player/StreamActions";
 
 const EASE = [0.2, 0, 0, 1] as const;
 
@@ -117,14 +123,16 @@ export function PlayerBar({
   const playerHeight = useLucidSettingsStore((state) => state.playerHeight);
   const downloadActive = useDownloadStore((state) => state.activeCount);
   const toggleDownloads = useDownloadStore((state) => state.toggle);
-  const toggleLike = usePlaylistStore((state) => state.toggleLike);
-  const liked = useIsLiked(track?.path);
+  const liked = useTrackLiked(track);
 
   const compactPlayer = playerHeight < 56;
   const tinyPlayer = playerHeight < 48;
   const repeatLabel =
     repeat === "one" ? "Repeat one" : repeat === "all" ? "Repeat all" : "Repeat off";
-  const quality = useMemo(() => (track ? formatQuality(track) : ""), [track]);
+  const quality = useMemo(
+    () => (track?.isStream ? streamSourceLabel(track) : track ? formatQuality(track) : ""),
+    [track],
+  );
   const coverSize = tinyPlayer
     ? "h-8 w-8"
     : compactPlayer
@@ -233,8 +241,15 @@ export function PlayerBar({
 
             {track && !compactPlayer && (
               <div className="mt-1 flex items-center gap-1.5">
-                <span className="rounded-[4px] border border-accent/25 bg-accent/[0.09] px-1.5 py-px text-[8px] font-bold tracking-[0.08em] text-accent/90">
-                  {track.format}
+                <span
+                  className={cn(
+                    "rounded-[4px] border px-1.5 py-px text-[8px] font-bold tracking-[0.08em]",
+                    track.isStream
+                      ? "border-accent/30 bg-accent/[0.13] text-accent"
+                      : "border-accent/25 bg-accent/[0.09] text-accent/90",
+                  )}
+                >
+                  {streamFormatLabel(track)}
                 </span>
                 <span className="hidden truncate text-[9px] text-white/25 xl:inline">
                   {quality}
@@ -243,17 +258,21 @@ export function PlayerBar({
             )}
           </div>
 
-          <IconButton
-            label={liked ? "Remove from Liked Songs" : "Add to Liked Songs"}
-            size="sm"
-            onClick={() => {
-              if (track) void toggleLike(track);
-            }}
-            disabled={!track}
-            className={cn("shrink-0", liked && "text-accent")}
-          >
-            <Heart className={cn("h-3.5 w-3.5", liked && "fill-current")} />
-          </IconButton>
+          <div className="flex shrink-0 items-center gap-2.5">
+            <IconButton
+              label={liked ? "Remove from Liked Songs" : "Add to Liked Songs"}
+              size="sm"
+              onClick={() => {
+                if (track) toggleTrackLike(track);
+              }}
+              disabled={!track}
+              className={cn(liked && "text-accent")}
+            >
+              <Heart className={cn("h-3.5 w-3.5", liked && "fill-current")} />
+            </IconButton>
+
+            {track?.isStream && <StreamSaveButton track={track} iconOnly />}
+          </div>
         </div>
 
         {/* Transport + progress */}

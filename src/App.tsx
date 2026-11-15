@@ -480,7 +480,16 @@ export default function App() {
     const offComplete = backend.onDownloadComplete((payload) => {
       useDownloadStore.getState().applySnapshot(payload.snapshot);
       useReleasesStore.getState().applyFeed(payload.feed);
-      void usePlayerStore.getState().refreshLibrary();
+      void usePlayerStore
+        .getState()
+        .refreshLibrary()
+        .then(() => {
+          // The scan that follows a finished download gives the local file a
+          // library id; only then can a virtual stream row be swapped to it.
+          for (const task of payload.completed) {
+            usePlayerStore.getState().adoptDownloadedStream(task);
+          }
+        });
 
       for (const task of payload.completed) {
         useToastStore.getState().push({

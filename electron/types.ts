@@ -275,6 +275,35 @@ export interface SpotifyAlbumCatalog {
   warnings: string[];
 }
 
+export type PreviewSourceKind =
+  | "spotify"
+  | "deezer"
+  | "itunes"
+  | "youtube"
+  | "soundcloud";
+
+/** Metadata used to resolve a preview or a direct full-track stream. */
+export interface PreviewLookup {
+  trackId?: string;
+  title: string;
+  artist: string;
+  artists?: string[];
+  album?: string;
+  durationMs?: number;
+  /** Spotify's own 30-second preview URL, when the catalog already has it. */
+  previewUrl?: string | null;
+  /** Bypass the main-process stream cache after a renderer playback failure. */
+  force?: boolean;
+}
+
+export interface PreviewPlaybackSource {
+  url: string;
+  source: PreviewSourceKind;
+  kind: "preview" | "full";
+  /** Wall-clock expiry for provider URLs that are not permanent. */
+  expiresAt: number | null;
+}
+
 export interface FollowedArtist {
   /** Spotify artist id. */
   id: string;

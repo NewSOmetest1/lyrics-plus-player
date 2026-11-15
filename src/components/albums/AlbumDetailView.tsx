@@ -11,6 +11,7 @@ import {
   Music2,
   Play,
   Sparkles,
+  Square,
 } from "lucide-react";
 
 import type {
@@ -22,6 +23,7 @@ import type {
 import { cn } from "@/lib/cn";
 import { formatCount, formatTime } from "@/lib/format";
 import { findLocalTrackForSpotify } from "@/lib/spotifyMatch";
+import { streamQueueFromCatalog } from "@/lib/streamTrack";
 import { useCoverPalette } from "@/hooks/useCoverPalette";
 import { useNavigation } from "@/hooks/useNavigation";
 import { openArtistForAlbum } from "@/lib/navigationTargets";
@@ -40,7 +42,7 @@ import {
 import { SpotifyArtwork } from "@/components/spotify/SpotifyCards";
 
 const TRACK_GRID =
-  "grid-cols-[24px_minmax(0,1fr)_112px_28px] md:grid-cols-[28px_minmax(0,2fr)_132px_28px_52px]";
+  "grid-cols-[24px_minmax(0,1fr)_140px_28px] md:grid-cols-[28px_minmax(0,2fr)_200px_28px_52px]";
 
 function downloadRequest(
   track: SpotifyCatalogTrack,
@@ -264,6 +266,39 @@ export function AlbumDetailView() {
     () => rows.filter((row) => !row.local).map((row) => row.track),
     [rows],
   );
+
+  const streamLoading = usePlayerStore((state) => state.streamLoading);
+
+  const streamQueue = useMemo(
+    () =>
+      streamQueueFromCatalog(
+        missingTracks,
+        "full",
+        `spotify-album-${album.id}`,
+      ),
+    [album.id, missingTracks],
+  );
+
+  const isCurrentStream = (track: SpotifyCatalogTrack) =>
+    Boolean(
+      currentTrack?.isStream &&
+        currentTrack.streamType === "full" &&
+        (currentTrack.streamSpotifyId === track.id ||
+          currentTrack.spotifyTrackId === track.id),
+    );
+
+  const playFullTrack = (track: SpotifyCatalogTrack) => {
+    if (isCurrentStream(track)) {
+      void togglePlay();
+      return;
+    }
+    const index = streamQueue.findIndex(
+      (item) => item.streamSpotifyId === track.id,
+    );
+    if (index < 0) return;
+    setShuffle(false);
+    void playTrack(streamQueue[index]!, 0, streamQueue);
+  };
 
   const pendingById = useMemo(() => {
     const pending = new Map<string, TrackDownloadState>();
@@ -578,6 +613,8 @@ export function AlbumDetailView() {
                   );
                   const pending = pendingById.get(track.id);
                   const liked = isTrackLiked(track.id);
+                  const previewing = isCurrentStream(track);
+                  const previewLoading = streamLoading && previewing;
 
                   return (
                     <div
@@ -602,6 +639,7 @@ export function AlbumDetailView() {
                           : active
                             ? "bg-white/[0.06]"
                             : "hover:bg-white/[0.04]",
+                        previewing && "bg-accent/[0.055]",
                         local
                           ? "cursor-pointer focus-visible:bg-white/[0.06]"
                           : "cursor-default",
@@ -613,7 +651,7 @@ export function AlbumDetailView() {
                         ) : (
                           <span
                             className={cn(
-                              "text-[10.5px] tabular-nums",
+                              "text-[10.5px] tabular-nums transition-opacity",
                               active ? "text-accent" : "text-white/25",
                             )}
                           >
@@ -654,7 +692,41 @@ export function AlbumDetailView() {
                         </p>
                       </div>
 
-                      <div className="flex justify-end md:justify-start">
+                      <div className="flex items-center justify-end gap-1 md:justify-start">
+                        {!local && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              playFullTrack(track);
+                            }}
+                            aria-label={
+                              previewing
+                                ? `Stop full track ${track.title}`
+                                : `Play full track ${track.title}`
+                            }
+                            title={
+                              previewing ? "Stop full track" : "Play full track"
+                            }
+                            className={cn(
+                              "inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-1.5 text-[9.5px] font-medium transition-colors",
+                              previewing
+                                ? "bg-accent/15 text-accent hover:bg-accent/20"
+                                : "text-white/40 hover:bg-white/[0.06] hover:text-white/85",
+                            )}
+                          >
+                            {previewLoading ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : previewing ? (
+                              <Square className="h-2.5 w-2.5 fill-current" />
+                            ) : (
+                              <Play className="h-3.5 w-3.5 fill-current" />
+                            )}
+                            <span className="hidden md:inline">
+                              {previewing ? "Stop" : "Play"}
+                            </span>
+                          </button>
+                        )}
                         <TrackStatusAction
                           downloaded={Boolean(local)}
                           format={local?.format ?? "FLAC"}

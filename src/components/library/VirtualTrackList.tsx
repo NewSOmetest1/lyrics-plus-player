@@ -8,7 +8,7 @@ export const TRACK_ROW_HEIGHT = 58;
 
 interface VirtualTrackListProps {
   tracks: Track[];
-  currentTrackId: number | null;
+  currentTrackId: Track["id"] | null;
   playing: boolean;
   onPlay: (track: Track) => void;
   /** The page-level scroll container that owns the track list. */

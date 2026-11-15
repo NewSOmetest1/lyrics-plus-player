@@ -2,12 +2,18 @@ import { useMemo } from "react";
 import { motion } from "framer-motion";
 import { Heart, Pause, Play, Sparkles } from "lucide-react";
 import { usePlayerStore } from "@/store/playerStore";
-import { useIsLiked, usePlaylistStore } from "@/store/playlistStore";
 import { useTrackMenuStore } from "@/store/contextMenuStore";
 import { cn } from "@/lib/cn";
 import { formatQuality, formatTime } from "@/lib/format";
 import { CoverArt } from "@/components/ui/CoverArt";
 import { ArtistLinks } from "@/components/artists/ArtistLinks";
+import {
+  StreamSaveButton,
+  streamFormatLabel,
+  streamSourceLabel,
+  toggleTrackLike,
+  useTrackLiked,
+} from "@/components/player/StreamActions";
 import {
   openArtistForAlbum,
   openLocalTrackAlbum,
@@ -21,8 +27,7 @@ export function NowPlayingPanel() {
   const playTrack = usePlayerStore((state) => state.playTrack);
   const togglePlay = usePlayerStore((state) => state.togglePlay);
   const openMenu = useTrackMenuStore((state) => state.openMenu);
-  const toggleLike = usePlaylistStore((state) => state.toggleLike);
-  const liked = useIsLiked(track?.path);
+  const liked = useTrackLiked(track);
 
   const queue = useMemo(() => {
     if (tracks.length <= 1) return [];
@@ -130,11 +135,18 @@ export function NowPlayingPanel() {
 
         {track && (
           <div className="mt-3 flex min-w-0 flex-wrap items-center gap-1.5">
-            <span className="max-w-full truncate rounded-md border border-accent/25 bg-accent/[0.12] px-2 py-0.5 text-[9px] font-bold tracking-[0.1em] text-accent">
-              {track.format}
+            <span
+              className={cn(
+                "max-w-full truncate rounded-md border px-2 py-0.5 text-[9px] font-bold tracking-[0.1em]",
+                track.isStream
+                  ? "border-accent/35 bg-accent/[0.16] text-accent"
+                  : "border-accent/25 bg-accent/[0.12] text-accent",
+              )}
+            >
+              {streamFormatLabel(track)}
             </span>
             <span className="max-w-full truncate rounded-md border border-white/[0.08] bg-white/[0.035] px-2 py-0.5 text-[9.5px] font-medium text-white/40">
-              {formatQuality(track)}
+              {track.isStream ? streamSourceLabel(track) : formatQuality(track)}
             </span>
             {track.bitrate && (
               <span className="max-w-full truncate rounded-md border border-white/[0.08] bg-white/[0.035] px-2 py-0.5 text-[9.5px] font-medium text-white/40">
@@ -148,7 +160,7 @@ export function NowPlayingPanel() {
           <button
             type="button"
             onClick={() => {
-              if (track) void toggleLike(track);
+              if (track) toggleTrackLike(track);
             }}
             disabled={!track}
             className={cn(
@@ -161,6 +173,8 @@ export function NowPlayingPanel() {
             <Heart className={cn("h-3.5 w-3.5 shrink-0", liked && "fill-current")} />
             {liked ? "Liked" : "Like"}
           </button>
+
+          {track?.isStream && <StreamSaveButton track={track} />}
         </div>
 
         <div className="my-3 h-px shrink-0 bg-white/[0.06]" />

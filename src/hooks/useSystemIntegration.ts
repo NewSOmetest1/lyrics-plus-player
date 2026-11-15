@@ -116,12 +116,17 @@ export function useSystemIntegration(): void {
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const durationMs = usePlayerStore((state) => state.durationMs);
 
-  const artworkRef = useRef<{ trackId: number; artwork: string | null } | null>(
+  const artworkRef = useRef<{ trackId: Track["id"]; artwork: string | null } | null>(
     null,
   );
   const trackRef = useRef<Track | null>(null);
   const positionStateRef = useRef({ at: 0, position: -1 });
-  const discordRef = useRef({ at: 0, position: -1, playing: false, trackId: -1 });
+  const discordRef = useRef<{
+    at: number;
+    position: number;
+    playing: boolean;
+    trackId: Track["id"];
+  }>({ at: 0, position: -1, playing: false, trackId: -1 });
 
   const sendDiscord = (force = false) => {
     const state = usePlayerStore.getState();

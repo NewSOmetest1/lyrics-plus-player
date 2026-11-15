@@ -12,6 +12,7 @@ import {
   Play,
   Shuffle,
   Sparkles,
+  Square,
   Star,
   UserRound,
 } from "lucide-react";
@@ -26,6 +27,7 @@ import type {
 import { cn } from "@/lib/cn";
 import { formatCount, formatTime, formatTimeLong } from "@/lib/format";
 import { findLocalTrackForSpotify } from "@/lib/spotifyMatch";
+import { streamQueueFromCatalog } from "@/lib/streamTrack";
 import {
   openArtistForAlbum,
   openCatalogTrackAlbum,
@@ -111,8 +113,11 @@ const PopularTrackRow = memo(function PopularTrackRow({
   active,
   playing,
   pending,
+  previewing,
+  previewLoading,
   onPlay,
   onPause,
+  onPreview,
   onDownload,
 }: {
   track: SpotifyCatalogTrack;
@@ -121,8 +126,11 @@ const PopularTrackRow = memo(function PopularTrackRow({
   active: boolean;
   playing: boolean;
   pending?: TrackDownloadState;
+  previewing: boolean;
+  previewLoading: boolean;
   onPlay: (track: Track) => void;
   onPause: () => void;
+  onPreview: () => void;
   onDownload: (track: SpotifyCatalogTrack) => void;
 }) {
   return (
@@ -138,6 +146,7 @@ const PopularTrackRow = memo(function PopularTrackRow({
       className={cn(
         "group grid h-[52px] grid-cols-[26px_minmax(0,1fr)_112px_28px] items-center gap-3 rounded-xl px-2.5 outline-none transition-colors focus-visible:bg-white/[0.06] md:grid-cols-[26px_minmax(0,2.2fr)_minmax(0,1.4fr)_112px_28px]",
         active ? "bg-white/[0.06]" : "hover:bg-white/[0.04]",
+        previewing && "bg-accent/[0.055]",
         !local && "opacity-80 hover:opacity-100",
       )}
     >
@@ -151,13 +160,14 @@ const PopularTrackRow = memo(function PopularTrackRow({
           <span
             className={cn(
               "text-[10.5px] tabular-nums transition-opacity group-hover:opacity-0",
+              previewing || previewLoading ? "opacity-0" : "",
               active ? "text-accent" : "text-white/25",
             )}
           >
             {String(index + 1).padStart(2, "0")}
           </span>
         )}
-        {local && (
+        {local ? (
           <button
             type="button"
             onClick={(event) => {
@@ -172,6 +182,32 @@ const PopularTrackRow = memo(function PopularTrackRow({
           >
             {active && playing ? (
               <Pause className="h-3 w-3 fill-current" />
+            ) : (
+              <Play className="h-3.5 w-3.5 fill-current" />
+            )}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onPreview();
+            }}
+            aria-label={
+              previewing
+                ? `Pause ${track.title}`
+                : `Play full track ${track.title}`
+            }
+            title={previewing ? "Pause full track" : "Play full track"}
+            className={cn(
+              "absolute flex h-6 w-6 items-center justify-center rounded-full text-white opacity-0 transition hover:scale-110 group-hover:opacity-100 focus-visible:opacity-100",
+              previewing && "text-accent opacity-100",
+            )}
+          >
+            {previewLoading ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : previewing ? (
+              <Square className="h-2.5 w-2.5 fill-current" />
             ) : (
               <Play className="h-3.5 w-3.5 fill-current" />
             )}
@@ -435,6 +471,95 @@ export function ArtistDetailView() {
         .map((track) => popularMatches.get(track.id) ?? null)
         .filter((track): track is Track => Boolean(track)),
     [popularMatches, popularTracks],
+  );
+
+  const streamLoading = usePlayerStore((state) => state.streamLoading);
+
+  const [previewAlbumPending, setPreviewAlbumPending] = useState<string | null>(
+    null,
+  );
+
+  const popularStreamQueue = useMemo(
+    () =>
+      streamQueueFromCatalog(
+        popularTracks.filter((track) => !popularMatches.get(track.id)),
+        "full",
+        "spotify-artist-top",
+      ),
+    [popularMatches, popularTracks],
+  );
+
+  const isCurrentStream = useCallback(
+    (track: SpotifyCatalogTrack) =>
+      Boolean(
+        currentTrack?.isStream &&
+          currentTrack.streamType === "full" &&
+          (currentTrack.streamSpotifyId === track.id ||
+            currentTrack.spotifyTrackId === track.id),
+      ),
+    [currentTrack],
+  );
+
+  const playPopularStream = useCallback(
+    (track: SpotifyCatalogTrack) => {
+      if (isCurrentStream(track)) {
+        void togglePlay();
+        return;
+      }
+      const index = popularStreamQueue.findIndex(
+        (item) => item.streamSpotifyId === track.id,
+      );
+      if (index < 0) return;
+      setShuffle(false);
+      void playTrack(popularStreamQueue[index]!, 0, popularStreamQueue);
+    },
+    [isCurrentStream, playTrack, popularStreamQueue, setShuffle, togglePlay],
+  );
+
+  const playAlbumStream = useCallback(
+    async (album: SpotifyAlbumSummary) => {
+      if (
+        currentTrack?.isStream &&
+        currentTrack.streamType === "full" &&
+        currentTrack.album === album.title
+      ) {
+        void togglePlay();
+        return;
+      }
+      setPreviewAlbumPending(album.id);
+      try {
+        const albumTracks = await loadAlbumTracks(album.id, {
+          artist: album.artist || artistName,
+          album: album.title,
+          coverUrl: album.coverUrl,
+        });
+        const queue = streamQueueFromCatalog(
+          albumTracks.filter(
+            (track) => !findLocalTrackForSpotify(tracks, track),
+          ),
+          "full",
+          `spotify-album-${album.id}`,
+        );
+        if (queue.length === 0) {
+          useToastStore.getState().push({
+            kind: "info",
+            title: "Everything is already on PC",
+            description: `${album.artist || artistName} · ${album.title}`,
+          });
+          return;
+        }
+        await playTrack(queue[0]!, 0, queue);
+      } catch (cause) {
+        useToastStore.getState().push({
+          kind: "error",
+          title: "Could not play album",
+          description: cause instanceof Error ? cause.message : String(cause),
+        });
+      } finally {
+        setPreviewAlbumPending(null);
+      }
+    },
+    [artistName, currentTrack, loadAlbumTracks, playTrack, togglePlay, tracks],
   );
 
   const pendingById = useMemo(() => {
@@ -826,8 +951,11 @@ export function ArtistDetailView() {
                       active={active}
                       playing={isPlaying}
                       pending={pendingById.get(track.id)}
+                      previewing={isCurrentStream(track)}
+                      previewLoading={streamLoading && isCurrentStream(track)}
                       onPlay={playPopularTrack}
                       onPause={pausePlayback}
+                      onPreview={() => playPopularStream(track)}
                       onDownload={downloadTrack}
                     />
                   );
@@ -860,7 +988,14 @@ export function ArtistDetailView() {
                       latest={album.id === latestReleaseId}
                       preRelease={releaseDateKey(album) > preReleaseCutoff}
                       highlighted={highlightAlbum === album.id}
+                      previewing={
+                        currentTrack?.isStream &&
+                        currentTrack.streamType === "full" &&
+                        currentTrack.album === album.title
+                      }
+                      previewLoading={previewAlbumPending === album.id}
                       onDownload={() => void downloadAlbum(album)}
+                      onPreview={() => void playAlbumStream(album)}
                       onOpen={() => openAlbum(album)}
                     />
                   </div>

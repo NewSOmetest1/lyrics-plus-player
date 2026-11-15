@@ -57,7 +57,7 @@ function compareTracks(a: Track, b: Track): number {
 export function buildArtistGroups(tracks: Track[]): ArtistGroup[] {
   const buckets = new Map<
     string,
-    { variants: Map<string, number>; tracks: Map<number, Track> }
+    { variants: Map<string, number>; tracks: Map<Track["id"], Track> }
   >();
 
   for (const track of tracks) {
@@ -126,7 +126,7 @@ export function buildAlbumGroups(tracks: Track[]): AlbumGroup[] {
     {
       album: string;
       artist: string;
-      tracks: Map<number, Track>;
+      tracks: Map<Track["id"], Track>;
     }
   >();
 

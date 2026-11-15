@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type {
   AppView,
+  DownloadTask,
   LibrarySection,
   LyricsMode,
   LyricsStatus,
@@ -18,11 +19,14 @@ import type {
 import { normalizeLyricsMode } from "@/types";
 import { backend } from "@/lib/api";
 import { ensureWordTimings, parseLrc, parsePlainLyrics } from "@/lib/lrc";
+import { resolveStreamTrack } from "@/lib/streamTrack";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useSpotifyLikedStore } from "@/store/spotifyLikedStore";
 import { useToastStore } from "@/store/toastStore";
 
 let lyricsRequest = 0;
+/** Invalidates in-flight stream lookups when another track is selected. */
+let playRequest = 0;
 let lyricsDebounce: { timer: ReturnType<typeof setTimeout>; resolve: () => void } | null = null;
 let initialized = false;
 
@@ -222,6 +226,8 @@ interface PlayerState {
   search: string;
 
   isPlaying: boolean;
+  /** True while a virtual stream row is resolving its HTTPS media URL. */
+  streamLoading: boolean;
   positionMs: number;
   durationMs: number;
   volume: number;
@@ -240,8 +246,15 @@ interface PlayerState {
   scanProgress: ScanProgress | null;
 
   init: () => Promise<void>;
-  playTrack: (track: Track, startMs?: number, queue?: Track[]) => Promise<void>;
+  playTrack: (
+    track: Track,
+    startMs?: number,
+    queue?: Track[],
+    options?: { forceStream?: boolean },
+  ) => Promise<void>;
   togglePlay: () => Promise<void>;
+  /** Pause main playback without toggling it back on. */
+  pausePlayback: () => Promise<void>;
   next: (auto?: boolean) => Promise<void>;
   prev: () => Promise<void>;
   seek: (positionMs: number) => void;
@@ -283,6 +296,8 @@ interface PlayerState {
   handlePosition: (snapshot: PlaybackSnapshot) => void;
   handleScanProgress: (progress: ScanProgress) => void;
   handleEnded: () => void;
+  /** Replace queued stream rows with the freshly scanned local file. */
+  adoptDownloadedStream: (task: DownloadTask) => void;
 }
 
 function normalizeNavigationEntry(entry: NavigationEntry): NavigationEntry {
@@ -475,6 +490,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   search: "",
 
   isPlaying: false,
+  streamLoading: false,
   positionMs: 0,
   durationMs: 0,
   volume: 0.8,
@@ -543,26 +559,33 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     }
   },
 
-  playTrack: async (track, startMs = 0, queue) => {
+  playTrack: async (track, startMs = 0, queue, options) => {
+    const request = ++playRequest;
     const { tracks, view: currentView } = get();
     if (currentView !== "player" && currentView !== "karaoke") {
       get().navigate({ type: "karaoke" });
     }
-    const playbackQueue = queue && queue.length > 0 ? queue : tracks;
-    const index = playbackQueue.findIndex((item) => item.id === track.id);
+    let playbackQueue = queue && queue.length > 0 ? queue : tracks;
+    let playable = track;
     const start = Math.max(0, Math.min(startMs, track.durationMs || startMs));
 
+    // A stream row becomes current immediately so the player, cover and
+    // lyrics react; resolving the media URL then fills the same queue slot.
     finalizeListeningSession(false);
-    beginListeningSession(track.path, start);
+    if (!track.isStream) beginListeningSession(track.path, start);
 
     set({
-      currentTrack: track,
+      currentTrack: playable,
       playbackQueue,
-      queueIndex: index >= 0 ? index : 0,
+      queueIndex: Math.max(
+        0,
+        playbackQueue.findIndex((item) => item.id === track.id),
+      ),
       view: currentView === "karaoke" ? "karaoke" : "player",
       durationMs: track.durationMs,
       positionMs: start,
       isPlaying: true,
+      streamLoading: Boolean(track.isStream),
       lyrics: [],
       lyricsRaw: "",
       lyricsSource: null,
@@ -573,27 +596,106 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       lyricsModeLocked: false,
     });
 
+    if (track.isStream) {
+      // Resolving a stream URL can take seconds. Silence the previous track
+      // now instead of leaving it audible under the loading row; if the lookup
+      // fails the old track stays paused rather than sneaking back in.
+      void backend.pause();
+      try {
+        playable = await resolveStreamTrack(track, options?.forceStream === true);
+      } catch (error) {
+        if (request !== playRequest) return;
+        if (get().currentTrack?.id === track.id) {
+          set({ isPlaying: false, streamLoading: false });
+          useToastStore.getState().push({
+            kind: "error",
+            title: "Could not play stream",
+            description:
+              error instanceof Error ? error.message : String(error),
+          });
+        }
+        return;
+      }
+      // Another row may have won the race while yt-dlp was resolving; never
+      // let the stale result hijack the newly selected track.
+      if (request !== playRequest || get().currentTrack?.id !== playable.id) {
+        return;
+      }
+
+      playbackQueue = playbackQueue.map((item) =>
+        item.id === playable.id ? playable : item,
+      );
+      const latest = get();
+      set({
+        currentTrack: playable,
+        playbackQueue,
+        streamLoading: false,
+        durationMs: playable.durationMs,
+      });
+      // A pause/seek issued during resolution must not be undone by the late
+      // stream URL. Resume starts the resolved row from the current position.
+      if (!latest.isPlaying) {
+        void get().loadLyrics(playable);
+        return;
+      }
+    }
+
+    const startAt =
+      get().currentTrack?.id === playable.id ? get().positionMs : start;
+
     try {
       const { crossfadeEnabled, crossfadeDuration } = useSettingsStore.getState();
-      const crossfadeMs = crossfadeEnabled ? crossfadeDuration * 1000 : 0;
-      crossfadeArmedFor = track.path;
-      await backend.play(track, start, crossfadeMs);
+      const crossfadeMs =
+        crossfadeEnabled && !playable.isStream
+          ? crossfadeDuration * 1000
+          : 0;
+      crossfadeArmedFor = playable.path;
+      await backend.play(playable, playable.isStream ? startAt : start, crossfadeMs);
     } catch (error) {
-      set({ isPlaying: false });
+      if (request !== playRequest) return;
+      set({ isPlaying: false, streamLoading: false });
       useToastStore.getState().push({
         kind: "error",
-        title: "Playback failed",
-        description: String(error),
+        title: playable.isStream ? "Stream playback failed" : "Playback failed",
+        description: playable.isStream
+          ? "The media source did not play. Press play to fetch a fresh stream."
+          : String(error),
       });
     }
-    void get().loadLyrics(track);
+    if (request === playRequest) void get().loadLyrics(playable);
   },
 
   togglePlay: async () => {
-    const { currentTrack, tracks, positionMs, durationMs } = get();
+    const { currentTrack, tracks, positionMs, durationMs, streamLoading } = get();
     if (!currentTrack) {
       const first = tracks[0];
       if (first) await get().playTrack(first);
+      return;
+    }
+    // A click during resolution only flips the intent. The resolver reads it
+    // when it finishes, so pausing here never starts audio the user stopped.
+    if (currentTrack.isStream && streamLoading) {
+      set({ isPlaying: !get().isPlaying });
+      return;
+    }
+
+    // A failed or nearly expired URL must be re-resolved, not resumed. Clear
+    // the path so `resolveStreamTrack` performs a fresh yt-dlp lookup.
+    const streamStale =
+      currentTrack.isStream &&
+      (backend.hasStreamError() ||
+        Boolean(
+          currentTrack.streamExpiresAt &&
+            currentTrack.streamExpiresAt <= Date.now() + 5_000,
+        ));
+    if (streamStale) {
+      const queue = get().playbackQueue;
+      await get().playTrack(
+        { ...currentTrack, path: "", streamExpiresAt: null },
+        positionMs,
+        queue.length > 0 ? queue : [currentTrack],
+        { forceStream: true },
+      );
       return;
     }
 
@@ -610,14 +712,41 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         return;
       }
 
+      if (currentTrack.isStream) {
+        // Resume through the stream deck so a rejected play() reaches this
+        // catch (and marks the URL stale) instead of being swallowed.
+        if (snapshot.paused) {
+          await backend.resume();
+          set({ isPlaying: true });
+        } else {
+          await backend.pause();
+          set({ isPlaying: false });
+        }
+        return;
+      }
+
       const paused = await backend.togglePause();
       set({ isPlaying: !paused });
     } catch (error) {
+      set({ isPlaying: false });
       useToastStore.getState().push({
         kind: "error",
-        title: "Playback failed",
-        description: String(error),
+        title: currentTrack.isStream ? "Stream playback failed" : "Playback failed",
+        description: currentTrack.isStream
+          ? "The media source did not play. Press play to fetch a fresh stream."
+          : String(error),
       });
+    }
+  },
+
+  pausePlayback: async () => {
+    if (!get().isPlaying) return;
+    try {
+      await backend.pause();
+      set({ isPlaying: false });
+    } catch {
+      // Preview playback must still start even if the main engine rejects.
+      set({ isPlaying: false });
     }
   },
 
@@ -628,8 +757,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
     if (auto && repeat === "one") {
       get().seek(0);
-      await backend.resume();
-      set({ isPlaying: true });
+      try {
+        await backend.resume();
+        set({ isPlaying: true });
+      } catch {
+        set({ isPlaying: false });
+      }
       return;
     }
 
@@ -747,7 +880,18 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     if (request !== lyricsRequest) return;
 
     try {
-      const payload = await backend.getLyrics(track.id, force);
+      const payload = track.isStream
+        ? await backend.getStreamLyrics({
+            trackId: track.streamSpotifyId ?? track.spotifyTrackId ?? "",
+            title: track.title,
+            artist: track.artist,
+            album: track.album,
+            durationMs: track.durationMs,
+          })
+        : await backend.getLyrics(
+            typeof track.id === "number" ? track.id : 0,
+            force,
+          );
       if (request !== lyricsRequest) return;
 
       if (payload.instrumental) {
@@ -1164,13 +1308,23 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   handlePosition: (snapshot) => {
     const current = get().currentTrack;
     if (!current) return;
-    if (snapshot.path && snapshot.path !== current.path) return;
+    if (current.isStream) {
+      // Ignore local-deck snapshots and stale URLs from a previous stream.
+      // Stopping the local deck while yt-dlp resolves must not pause the row.
+      if (!snapshot.path || snapshot.path !== current.path) return;
+    } else if (snapshot.path && snapshot.path !== current.path) {
+      return;
+    }
     set({
       positionMs: snapshot.positionMs,
       durationMs: snapshot.durationMs || current.durationMs,
       isPlaying: !snapshot.paused && !snapshot.eof,
     });
-    noteListeningSnapshot(snapshot, current.path);
+    if (!current.isStream) noteListeningSnapshot(snapshot, current.path);
+
+    // Streams never participate in the local crossfade/stat pipeline; their
+    // next track starts from the ended event instead.
+    if (current.isStream) return;
 
     // Start the next track a little before the end so both decks can overlap.
     // The audio engine ignores `ended` from the outgoing deck once the new one
@@ -1209,7 +1363,53 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   handleEnded: () => {
-    finalizeListeningSession(true);
+    if (!get().currentTrack?.isStream) finalizeListeningSession(true);
     void get().next(true);
+  },
+
+  adoptDownloadedStream: (task) => {
+    const state = get();
+    const spotifyId = task.trackId?.trim();
+    const local =
+      state.tracks.find((track) => track.path === task.filePath) ??
+      state.tracks.find(
+        (track) =>
+          Boolean(spotifyId) && track.spotifyTrackId === spotifyId,
+      );
+    if (!local) return;
+
+    const queue = state.playbackQueue.map((item) =>
+      item.isStream &&
+      ((spotifyId && item.streamSpotifyId === spotifyId) ||
+        (spotifyId && item.spotifyTrackId === spotifyId) ||
+        item.id === `stream:${spotifyId}`)
+        ? local
+        : item,
+    );
+
+    // Never cut the currently audible stream. The local file takes over the
+    // next time that queue slot starts; a paused row can swap immediately.
+    if (
+      state.currentTrack?.isStream &&
+      spotifyId &&
+      (state.currentTrack.streamSpotifyId === spotifyId ||
+        state.currentTrack.spotifyTrackId === spotifyId)
+    ) {
+      if (!state.isPlaying) {
+        const index = queue.findIndex((item) => item.id === local.id);
+        set({
+          currentTrack: local,
+          playbackQueue: queue,
+          queueIndex: index >= 0 ? index : state.queueIndex,
+          durationMs: local.durationMs,
+          streamLoading: false,
+        });
+        return;
+      }
+      set({ playbackQueue: queue });
+      return;
+    }
+
+    set({ playbackQueue: queue });
   },
 }));

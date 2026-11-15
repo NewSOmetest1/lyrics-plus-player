@@ -1,3 +1,5 @@
+import type { PreviewLookup, PreviewSourceKind } from "../electron/api";
+
 export const LYRICS_MODES = ["karaoke", "synced", "unsynced"] as const;
 export type LyricsMode = (typeof LYRICS_MODES)[number];
 
@@ -34,6 +36,9 @@ export type {
   SpotifySearchCatalog,
   SpotifyArtistCatalog,
   SpotifyAlbumCatalog,
+  PreviewLookup,
+  PreviewPlaybackSource,
+  PreviewSourceKind,
   TrackFileDeleteResult,
 } from "../electron/api";
 
@@ -90,7 +95,8 @@ export type NavigationEntry =
 export type RepeatMode = "off" | "all" | "one";
 
 export interface Track {
-  id: number;
+  /** Local moodboard id, or `stream:<Spotify id>` for a virtual stream row. */
+  id: number | string;
   path: string;
   title: string;
   artist: string;
@@ -121,6 +127,21 @@ export interface Track {
   coverPalettePath?: string | null;
   hasEmbeddedLyrics: boolean;
   addedAt: number;
+
+  /**
+   * Virtual online stream. Its `path` is an expiring HTTPS media URL, never a
+   * file on disk, and it must not touch local stats or library mutations.
+   */
+  isStream?: boolean;
+  streamType?: "full" | "preview";
+  streamSource?: PreviewSourceKind | null;
+  streamExpiresAt?: number | null;
+  /** Metadata used to re-resolve an expired URL or a queued lazy stream. */
+  streamLookup?: PreviewLookup | null;
+  /** Release bucket for the Save FLAC action. */
+  streamReleaseId?: string;
+  /** Spotify id, duplicated for stream rows without a local track record. */
+  streamSpotifyId?: string;
 }
 
 export interface TrackStatsRecord {

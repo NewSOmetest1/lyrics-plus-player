@@ -16,7 +16,12 @@ import {
   type Rectangle,
 } from "electron";
 
-import { resolveLyrics, testProvider, type TestProviderId } from "./lyrics";
+import {
+  resolveLyrics,
+  resolveStreamLyrics,
+  testProvider,
+  type TestProviderId,
+} from "./lyrics";
 import * as spotifyAuth from "./spotify-auth.cjs";
 import { downloadCover, openCoversFolder } from "./cover-download";
 import { pruneCoversCache } from "./covers-lru";
@@ -50,7 +55,12 @@ import {
   DownloadManager,
   resolveDownloaderSettings,
 } from "./downloader";
-import { ReleasesStore, resolvePreviewUrl } from "./releases";
+import { ReleasesStore } from "./releases";
+import {
+  normalizePreviewLookup,
+  resolveFullStream,
+  resolvePreviewTrack,
+} from "./preview";
 import { SpotifyLikedStore, fetchSpotifyProfile } from "./spotify-liked";
 import { SpotifyCatalogService } from "./spotify-catalog";
 import { ArtistCacheStore } from "./artist-cache";
@@ -509,6 +519,35 @@ function registerIpc(): void {
   );
 
   ipcMain.handle(
+    "get_stream_lyrics",
+    async (
+      _event,
+      payload: {
+        trackId?: string;
+        title?: string;
+        artist?: string;
+        album?: string;
+        durationMs?: number;
+      },
+    ) => {
+      const title = payload.title?.trim() ?? "";
+      const artist = payload.artist?.trim() ?? "";
+      if (!title || !artist) throw new Error("A stream title and artist are required");
+      return resolveStreamLyrics(store, {
+        trackId: payload.trackId?.trim() || undefined,
+        title,
+        artist,
+        album: payload.album?.trim() || undefined,
+        durationMs:
+          typeof payload.durationMs === "number" &&
+          Number.isFinite(payload.durationMs)
+            ? Math.max(0, Math.round(payload.durationMs))
+            : undefined,
+      });
+    },
+  );
+
+  ipcMain.handle(
     "test_provider",
     (
       _event,
@@ -713,10 +752,24 @@ function registerIpc(): void {
     return releases.getFeed(status.authenticated);
   });
 
-  ipcMain.handle("releases:preview", (_event, trackId: unknown) => {
-    return typeof trackId === "string"
-      ? resolvePreviewUrl(trackId)
-      : Promise.resolve(null);
+  ipcMain.handle("releases:preview", async (_event, trackId: unknown) => {
+    if (typeof trackId !== "string") return null;
+    const input = normalizePreviewLookup({ trackId });
+    if (!input) return null;
+    const result = await resolvePreviewTrack(input);
+    return result?.url ?? null;
+  });
+
+  ipcMain.handle("preview:resolve", async (_event, payload: unknown) => {
+    const input = normalizePreviewLookup(payload);
+    if (!input) return null;
+    return resolvePreviewTrack(input);
+  });
+
+  ipcMain.handle("preview:fullStream", async (_event, payload: unknown) => {
+    const input = normalizePreviewLookup(payload);
+    if (!input) throw new Error("A title and artist are required.");
+    return resolveFullStream(input);
   });
 
   ipcMain.handle("releases:sync", async () => {

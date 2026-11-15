@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Download, Loader2, Music2 } from "lucide-react";
+import { Check, Download, Loader2, Music2, Play, Square } from "lucide-react";
 
 import type { CoverTarget, SpotifyAlbumSummary, Track } from "@/types";
 import { cn } from "@/lib/cn";
@@ -64,7 +64,10 @@ export function SpotifyAlbumCard({
   highlighted = false,
   latest = false,
   preRelease = false,
+  previewing = false,
+  previewLoading = false,
   onDownload,
+  onPreview,
   onOpen,
 }: {
   album: SpotifyAlbumSummary;
@@ -73,7 +76,10 @@ export function SpotifyAlbumCard({
   highlighted?: boolean;
   latest?: boolean;
   preRelease?: boolean;
+  previewing?: boolean;
+  previewLoading?: boolean;
   onDownload: () => void;
+  onPreview?: () => void;
   onOpen?: () => void;
 }) {
   const stats = localAlbumStats(tracks, album);
@@ -144,6 +150,34 @@ export function SpotifyAlbumCard({
             <Download className="h-3.5 w-3.5" />
           )}
         </button>
+        {onPreview && (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onPreview();
+            }}
+            disabled={previewLoading}
+            aria-label={
+              previewing
+                ? `Pause ${album.title}`
+                : `Play all tracks from ${album.title}`
+            }
+            title={previewing ? "Pause album" : "Play all tracks"}
+            className={cn(
+              "absolute bottom-2 left-2 flex h-8 w-8 translate-y-1 items-center justify-center rounded-full border border-white/15 bg-black/55 text-white shadow-lg backdrop-blur-md opacity-0 transition duration-200 group-hover:translate-y-0 group-hover:opacity-100 hover:bg-accent hover:text-black disabled:opacity-60",
+              previewing && "bg-accent text-black opacity-100",
+            )}
+          >
+            {previewLoading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : previewing ? (
+              <Square className="h-3 w-3 fill-current" />
+            ) : (
+              <Play className="ml-0.5 h-3.5 w-3.5 fill-current" />
+            )}
+          </button>
+        )}
       </div>
       <p className="mt-2.5 truncate text-[12px] font-bold text-white/80">
         {album.title}

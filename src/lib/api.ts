@@ -12,6 +12,8 @@ import type {
   MusicFolderRescanResult,
   PlaybackSnapshot,
   Playlist,
+  PreviewLookup,
+  PreviewPlaybackSource,
   ReleaseFeed,
   ScanProgress,
   ScanSummary,
@@ -461,6 +463,19 @@ class AudioEngine {
   };
   private positionListeners = new Set<(snapshot: PlaybackSnapshot) => void>();
   private endedListeners = new Set<() => void>();
+  /**
+   * Remote streams stay outside the Web Audio graph: googlevideo/SoundCloud do
+   * not answer CORS, and a media element source would mute the output. This
+   * third element is part of the same engine, just a direct-to-device deck.
+   */
+  private streamAudio: HTMLAudioElement | null = null;
+  private activeIsStream = false;
+  /**
+   * A fatal source error (for example a yt-dlp URL that 403s midway) parks the
+   * element until the source is replaced. The store checks this flag before
+   * resuming so the next play re-resolves instead of reusing the dead URL.
+   */
+  private streamFailed = false;
 
   constructor() {
     this.decks = [this.createDeck(0), this.createDeck(1)];
@@ -523,6 +538,92 @@ class AudioEngine {
     });
 
     return deck;
+  }
+
+  private ensureStreamAudio(): HTMLAudioElement {
+    if (this.streamAudio) return this.streamAudio;
+    const audio = new Audio();
+    audio.preload = "auto";
+    // No crossOrigin and no createMediaElementSource: remote providers do not
+    // grant CORS, and CORS failures must not silence the main player.
+    audio.addEventListener("loadedmetadata", () => {
+      if (!this.activeIsStream || audio.src !== this.snapshot.path) return;
+      if (Number.isFinite(audio.duration)) {
+        this.snapshot.durationMs = Math.round(audio.duration * 1000);
+      }
+      this.emit();
+    });
+    audio.addEventListener("play", () => {
+      if (!this.activeIsStream || audio.src !== this.snapshot.path) return;
+      if (audio.paused) return;
+      this.streamFailed = false;
+      this.snapshot.paused = false;
+      this.emit();
+    });
+    audio.addEventListener("pause", () => {
+      if (!this.activeIsStream || this.snapshot.eof) return;
+      if (audio.src !== this.snapshot.path || !audio.paused) return;
+      this.snapshot.paused = true;
+      this.emit();
+    });
+    audio.addEventListener("ended", () => this.finishStream());
+    audio.addEventListener("error", () => {
+      if (!this.activeIsStream || !this.snapshot.path) return;
+      if (audio.src !== this.snapshot.path) return;
+      if (import.meta.env.DEV) {
+        console.error(
+          "[audio] stream error",
+          audio.error?.code,
+          audio.error?.message,
+          audio.src,
+        );
+      }
+      const lastPosition = Math.max(
+        audio.currentTime,
+        this.snapshot.positionMs / 1000,
+      );
+      if (lastPosition > 1) {
+        this.finishStream();
+        return;
+      }
+      if (this.snapshot.eof) return;
+      this.streamFailed = true;
+      this.snapshot.paused = true;
+      this.emit();
+    });
+    this.streamAudio = audio;
+    return audio;
+  }
+
+  private stopStream() {
+    const audio = this.streamAudio;
+    if (!audio) return;
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+  }
+
+  private stopLocalDecks() {
+    for (const deck of this.decks) {
+      deck.audio.pause();
+      deck.audio.removeAttribute("src");
+      deck.audio.load();
+      if (deck.gain) this.setDeckGain(deck, 1, this.context?.currentTime ?? 0);
+    }
+  }
+
+  private finishStream(): void {
+    if (!this.activeIsStream || this.snapshot.eof) return;
+    this.snapshot.paused = true;
+    this.snapshot.eof = true;
+    this.snapshot.positionMs = this.snapshot.durationMs;
+    this.emit();
+    this.endedListeners.forEach((listener) => listener());
+  }
+
+  private activeAudio(): HTMLAudioElement | null {
+    if (this.activeIsStream) return this.streamAudio;
+    return this.decks[this.activeDeck]?.audio ?? null;
   }
 
   /**
@@ -588,15 +689,76 @@ class AudioEngine {
     if (deck.gain) this.setDeckGain(deck, 1, this.context?.currentTime ?? 0);
   }
 
-  play(path: string, startMs: number, durationMs: number, crossfadeMs = 0) {
+  play(
+    path: string,
+    startMs: number,
+    durationMs: number,
+    crossfadeMs = 0,
+    isStream = false,
+  ): Promise<void> {
     if (import.meta.env.DEV) {
-      console.debug("[audio] play", path, startMs, crossfadeMs > 0 ? "crossfade" : "");
+      console.debug(
+        "[audio] play",
+        path,
+        startMs,
+        isStream ? "stream" : crossfadeMs > 0 ? "crossfade" : "",
+      );
     }
-    this.ensureGraph();
     if (this.crossfadeTimer !== null) {
       window.clearTimeout(this.crossfadeTimer);
       this.crossfadeTimer = null;
     }
+
+    if (isStream) {
+      this.stopLocalDecks();
+      const audio = this.ensureStreamAudio();
+      this.stopStream();
+      this.activeIsStream = true;
+      this.snapshot = {
+        ...this.snapshot,
+        path,
+        positionMs: Math.max(0, startMs),
+        durationMs,
+        paused: false,
+        eof: false,
+      };
+      this.streamFailed = false;
+      audio.volume = this.snapshot.volume / 100;
+      audio.src = path;
+      const target = Math.max(0, startMs) / 1000;
+      if (target > 0) {
+        const seekWhenReady = () => {
+          try {
+            audio.currentTime = target;
+          } catch {
+            // Metadata may not be ready yet.
+          }
+        };
+        if (audio.readyState >= 1) seekWhenReady();
+        else audio.addEventListener("loadedmetadata", seekWhenReady, { once: true });
+      }
+      const started = audio.play().catch((error) => {
+        if (import.meta.env.DEV) console.error("[audio] stream play() rejected", error);
+        // A pause or a replaced source aborts the pending play() promise; that
+        // is not a broken stream and must not trigger re-resolution.
+        if (
+          audio.src !== this.snapshot.path ||
+          (error instanceof DOMException && error.name === "AbortError")
+        ) {
+          return;
+        }
+        this.streamFailed = true;
+        this.snapshot.paused = true;
+        this.emit();
+        throw error;
+      });
+      this.emit();
+      return started;
+    }
+
+    this.stopStream();
+    this.activeIsStream = false;
+    this.ensureGraph();
 
     const current = this.decks[this.activeDeck];
     const canCrossfade =
@@ -680,6 +842,7 @@ class AudioEngine {
       this.emit();
     });
     this.emit();
+    return Promise.resolve();
   }
 
   pause() {
@@ -687,6 +850,7 @@ class AudioEngine {
       window.clearTimeout(this.crossfadeTimer);
       this.crossfadeTimer = null;
     }
+    if (this.activeIsStream) this.streamAudio?.pause();
     for (const [index, deck] of this.decks.entries()) {
       deck.audio.pause();
       if (index !== this.activeDeck && deck.audio.src) {
@@ -699,7 +863,39 @@ class AudioEngine {
     this.emit();
   }
 
-  resume() {
+  resume(): Promise<void> {
+    if (this.activeIsStream) {
+      const audio = this.ensureStreamAudio();
+      if (audio.error && this.snapshot.path) {
+        audio.src = this.snapshot.path;
+        this.snapshot.positionMs = 0;
+        this.snapshot.eof = false;
+      } else if (
+        this.snapshot.eof ||
+        this.snapshot.positionMs >= this.snapshot.durationMs
+      ) {
+        audio.currentTime = 0;
+        this.snapshot.positionMs = 0;
+        this.snapshot.eof = false;
+      }
+      audio.volume = this.snapshot.volume / 100;
+      const started = audio.play().catch((error) => {
+        if (
+          audio.src !== this.snapshot.path ||
+          (error instanceof DOMException && error.name === "AbortError")
+        ) {
+          return;
+        }
+        this.streamFailed = true;
+        this.snapshot.paused = true;
+        this.emit();
+        throw error;
+      });
+      this.snapshot.paused = false;
+      this.emit();
+      return started;
+    }
+
     this.ensureGraph();
     const deck = this.decks[this.activeDeck];
     if (deck.audio.error && this.snapshot.path) {
@@ -723,6 +919,7 @@ class AudioEngine {
     void deck.audio.play().catch(() => undefined);
     this.snapshot.paused = false;
     this.emit();
+    return Promise.resolve();
   }
 
   togglePause(): boolean {
@@ -736,8 +933,9 @@ class AudioEngine {
       Math.max(0, positionMs),
       this.snapshot.durationMs || Number.MAX_SAFE_INTEGER,
     );
+    const audio = this.activeAudio();
     try {
-      this.decks[this.activeDeck].audio.currentTime = target / 1000;
+      if (audio) audio.currentTime = target / 1000;
     } catch {
       // ignore seeks before metadata
     }
@@ -752,9 +950,9 @@ class AudioEngine {
     const level = clamped / 100;
     if (this.masterGain && this.context) {
       this.masterGain.gain.setValueAtTime(level, this.context.currentTime);
-    } else {
-      for (const deck of this.decks) deck.audio.volume = level;
     }
+    for (const deck of this.decks) deck.audio.volume = level;
+    if (this.streamAudio) this.streamAudio.volume = level;
     this.emit();
   }
 
@@ -764,12 +962,19 @@ class AudioEngine {
       this.crossfadeTimer = null;
     }
     for (const deck of this.decks) this.stopDeck(deck);
+    this.stopStream();
+    this.activeIsStream = false;
     this.snapshot = { ...this.snapshot, path: null, positionMs: 0, paused: true, eof: false };
     this.emit();
   }
 
   getSnapshot(): PlaybackSnapshot {
     return { ...this.snapshot };
+  }
+
+  /** True when the active stream source failed and must be re-resolved. */
+  hasStreamError(): boolean {
+    return this.activeIsStream && this.streamFailed;
   }
 
   onPosition(listener: (snapshot: PlaybackSnapshot) => void) {
@@ -783,13 +988,13 @@ class AudioEngine {
   }
 
   private tick() {
-    const deck = this.decks[this.activeDeck];
-    if (!this.snapshot.path || deck.audio.paused) return;
-    if (Number.isFinite(deck.audio.currentTime)) {
-      this.snapshot.positionMs = Math.round(deck.audio.currentTime * 1000);
+    const audio = this.activeAudio();
+    if (!this.snapshot.path || !audio || audio.paused) return;
+    if (Number.isFinite(audio.currentTime)) {
+      this.snapshot.positionMs = Math.round(audio.currentTime * 1000);
     }
-    if (Number.isFinite(deck.audio.duration)) {
-      this.snapshot.durationMs = Math.round(deck.audio.duration * 1000);
+    if (Number.isFinite(audio.duration)) {
+      this.snapshot.durationMs = Math.round(audio.duration * 1000);
     }
     this.emit();
   }
@@ -894,6 +1099,27 @@ export const backend = {
     return electronApi().invoke<LyricsPayload>("get_lyrics", { trackId, force });
   },
 
+  async getStreamLyrics(input: {
+    trackId?: string;
+    title: string;
+    artist: string;
+    album?: string;
+    durationMs?: number;
+  }): Promise<LyricsPayload> {
+    if (!isElectron) {
+      await sleep(320);
+      return {
+        trackId: -1,
+        source: "demo",
+        synced: false,
+        content: "",
+        lineCount: 0,
+        instrumental: false,
+      };
+    }
+    return electronApi().invoke<LyricsPayload>("get_stream_lyrics", input);
+  },
+
   async testProvider(
     provider: ProviderTestResult["provider"],
     credentials?: { spDc?: string; spKey?: string },
@@ -923,7 +1149,13 @@ export const backend = {
       demo.play(track.path, startMs, track.durationMs);
       return;
     }
-    audio.play(track.path, startMs, track.durationMs, crossfadeMs);
+    return audio.play(
+      track.path,
+      startMs,
+      track.durationMs,
+      crossfadeMs,
+      Boolean(track.isStream),
+    );
   },
 
   async pause(): Promise<void> {
@@ -933,7 +1165,7 @@ export const backend = {
 
   async resume(): Promise<void> {
     if (!isElectron) return demo.resume();
-    audio.resume();
+    return audio.resume();
   },
 
   async togglePause(): Promise<boolean> {
@@ -959,6 +1191,12 @@ export const backend = {
   async getPlaybackState(): Promise<PlaybackSnapshot> {
     if (!isElectron) return demo.getSnapshot();
     return audio.getSnapshot();
+  },
+
+  /** Streams re-resolve after a fatal source error instead of reusing it. */
+  hasStreamError(): boolean {
+    if (!isElectron) return false;
+    return audio.hasStreamError();
   },
 
   async getDefaultMusicDir(): Promise<string | null> {
@@ -1337,6 +1575,28 @@ export const backend = {
   async getReleasePreview(trackId: string): Promise<string | null> {
     if (!isElectron) return null;
     return electronApi().invoke<string | null>("releases:preview", trackId);
+  },
+
+  async resolvePreviewSource(
+    input: PreviewLookup,
+  ): Promise<PreviewPlaybackSource | null> {
+    if (!isElectron) return null;
+    return electronApi().invoke<PreviewPlaybackSource | null>(
+      "preview:resolve",
+      input,
+    );
+  },
+
+  async resolveFullStream(
+    input: PreviewLookup,
+  ): Promise<PreviewPlaybackSource> {
+    if (!isElectron) {
+      throw new Error("Full streaming needs the Electron desktop app.");
+    }
+    return electronApi().invoke<PreviewPlaybackSource>(
+      "preview:fullStream",
+      input,
+    );
   },
 
   async getDownloads(): Promise<DownloadSnapshot> {

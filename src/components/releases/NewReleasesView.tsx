@@ -1,9 +1,6 @@
 import {
-  useCallback,
   useEffect,
   useMemo,
-  useRef,
-  useState,
 } from "react";
 import {
   Bell,
@@ -18,9 +15,11 @@ import {
 import { useShallow } from "zustand/react/shallow";
 
 import type { DownloadRequest, ReleaseRecord } from "@/types";
-import { backend } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { splitArtistNames } from "@/lib/artists";
+import {
+  streamQueueFromRelease,
+} from "@/lib/streamTrack";
 import { useDownloadStore } from "@/store/downloadStore";
 import { usePlayerStore } from "@/store/playerStore";
 import {
@@ -125,11 +124,10 @@ export function NewReleasesView() {
     }),
   );
   const tracks = usePlayerStore((state) => state.tracks);
-
-  const [previewId, setPreviewId] = useState<string | null>(null);
-  const [previewLoading, setPreviewLoading] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const previewToken = useRef(0);
+  const currentTrack = usePlayerStore((state) => state.currentTrack);
+  const streamLoading = usePlayerStore((state) => state.streamLoading);
+  const playTrack = usePlayerStore((state) => state.playTrack);
+  const togglePlay = usePlayerStore((state) => state.togglePlay);
 
   useEffect(() => {
     void ensureFresh();
@@ -147,87 +145,30 @@ export function NewReleasesView() {
     [seenReleaseIds],
   );
 
-  const stopPreview = useCallback(() => {
-    previewToken.current += 1;
-    const audio = audioRef.current;
-    if (audio) {
-      audio.onended = null;
-      audio.onerror = null;
-      audio.pause();
-      audio.removeAttribute("src");
-      audio.load();
-    }
-    audioRef.current = null;
-    setPreviewId(null);
-    setPreviewLoading(null);
-  }, []);
-
-  useEffect(() => () => stopPreview(), [stopPreview]);
-
-  const togglePreview = async (release: ReleaseRecord) => {
-    if (previewId === release.id) {
-      stopPreview();
+  const togglePreview = (release: ReleaseRecord) => {
+    const alreadyPlaying = Boolean(
+      currentTrack?.isStream &&
+        currentTrack.streamType === "preview" &&
+        release.tracks.some(
+          (track) =>
+            track.id === currentTrack.streamSpotifyId ||
+            track.id === currentTrack.spotifyTrackId,
+        ),
+    );
+    if (alreadyPlaying) {
+      void togglePlay();
       return;
     }
-    stopPreview();
-    const token = previewToken.current;
-    setPreviewLoading(release.id);
-    let url = release.previewUrl;
-    try {
-      if (!url) {
-        const trackId = release.tracks[0]?.id;
-        if (trackId) url = await backend.getReleasePreview(trackId);
-      }
-    } catch (error) {
-      console.warn("[releases] could not resolve preview:", error);
-    }
-    if (previewToken.current !== token) return;
-    if (!url) {
-      setPreviewLoading(null);
+    const queue = streamQueueFromRelease(release, "preview");
+    if (queue.length === 0) {
       useToastStore.getState().push({
         kind: "info",
         title: "No preview available",
-        description: "Spotify did not provide a 30-second preview for this release.",
+        description: "This release has no tracks.",
       });
       return;
     }
-    const audio = new Audio(url);
-    audio.volume = 0.85;
-    audio.preload = "auto";
-    audio.onended = () => {
-      if (previewToken.current !== token) return;
-      setPreviewId(null);
-      setPreviewLoading(null);
-      audioRef.current = null;
-    };
-    audio.onerror = () => {
-      if (previewToken.current !== token) return;
-      setPreviewId(null);
-      setPreviewLoading(null);
-      audioRef.current = null;
-      useToastStore.getState().push({
-        kind: "error",
-        title: "Preview could not play",
-        description: "The Spotify preview URL is unavailable.",
-      });
-    };
-    audioRef.current = audio;
-    void audio
-      .play()
-      .then(() => {
-        if (previewToken.current !== token) return;
-        setPreviewId(release.id);
-        setPreviewLoading(null);
-      })
-      .catch((error) => {
-        if (previewToken.current !== token) return;
-        setPreviewLoading(null);
-        useToastStore.getState().push({
-          kind: "error",
-          title: "Preview could not play",
-          description: error instanceof Error ? error.message : String(error),
-        });
-      });
+    void playTrack(queue[0]!, 0, queue);
   };
 
   const queuedReleaseIds = useMemo(
@@ -430,8 +371,27 @@ export function NewReleasesView() {
               <ReleaseCard
                 key={release.id}
                 release={release}
-                previewing={previewId === release.id}
-                previewLoading={previewLoading === release.id}
+                previewing={Boolean(
+                  currentTrack?.isStream &&
+                    currentTrack.streamType === "preview" &&
+                    release.tracks.some(
+                      (track) =>
+                        track.id === currentTrack.streamSpotifyId ||
+                        track.id === currentTrack.spotifyTrackId,
+                    ),
+                )}
+                previewLoading={
+                  streamLoading &&
+                  Boolean(
+                    currentTrack?.isStream &&
+                      currentTrack.streamType === "preview" &&
+                      release.tracks.some(
+                        (track) =>
+                          track.id === currentTrack.streamSpotifyId ||
+                          track.id === currentTrack.spotifyTrackId,
+                      ),
+                  )
+                }
                 downloading={queuedReleaseIds.has(release.id)}
                 unread={!seenReleaseIdSet.has(release.id)}
                 onPreview={() => togglePreview(release)}
