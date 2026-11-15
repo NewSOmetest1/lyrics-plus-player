@@ -96,7 +96,7 @@ export function SpotifyAlbumCard({
         }
       }}
       className={cn(
-        "group min-w-0 rounded-2xl border border-white/[0.055] bg-white/[0.02] p-2.5 transition hover:border-white/[0.1] hover:bg-white/[0.04]",
+        "discography-card group min-w-0 rounded-2xl border border-white/[0.055] bg-white/[0.02] p-2.5 transition hover:border-white/[0.1] hover:bg-white/[0.04]",
         onOpen &&
           "cursor-pointer outline-none focus-visible:border-accent/40 focus-visible:ring-2 focus-visible:ring-accent/50",
         highlighted &&

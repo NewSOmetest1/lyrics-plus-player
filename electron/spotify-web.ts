@@ -12,6 +12,12 @@ const USER_AGENT =
 const REQUEST_TIMEOUT_MS = 20_000;
 const HEADER_TTL_MS = 20 * 60 * 1000;
 const WARMUP_TIMEOUT_MS = 20_000;
+/**
+ * Artist pages render one card per release. Cap the walk so a malformed or
+ * repeating partner response cannot turn into an unbounded request loop.
+ */
+const DISCOGRAPHY_MAX_RELEASES = 80;
+const DISCOGRAPHY_MAX_PAGES = 4;
 
 const HASHES = {
   profileAttributes:
@@ -651,7 +657,7 @@ export class SpotifyWebClient {
     const byId = new Map<string, SpotifyWebRelease>();
     let offset = 0;
 
-    for (let page = 0; page < 40; page += 1) {
+    for (let page = 0; page < DISCOGRAPHY_MAX_PAGES; page += 1) {
       const data = await this.query<PartnerDiscographyData>(
         "queryArtistDiscographyAll",
         {
@@ -665,16 +671,17 @@ export class SpotifyWebClient {
 
       const groups = data.artistUnion?.discography?.all?.items ?? [];
       const total = data.artistUnion?.discography?.all?.totalCount;
-      let added = 0;
+      const before = byId.size;
       for (const release of releasesFromDiscography(data)) {
+        if (byId.size >= DISCOGRAPHY_MAX_RELEASES) break;
         if (byId.has(release.id)) continue;
         byId.set(release.id, release);
-        added += 1;
       }
 
-      // Stop when the catalog is exhausted, or when Spotify ignores the
-      // offset and repeats a page (no new release ids).
-      if (groups.length === 0 || added === 0) break;
+      // Stop when the catalog is exhausted, when Spotify ignores the offset
+      // and repeats a page, or when the UI cap is reached.
+      if (groups.length === 0 || byId.size === before) break;
+      if (byId.size >= DISCOGRAPHY_MAX_RELEASES) break;
       offset += groups.length;
       if (typeof total === "number" && offset >= total) break;
     }

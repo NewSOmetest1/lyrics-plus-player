@@ -5,7 +5,8 @@ import type {
 } from "@/types";
 import {
   isSpotifyTrackOnPC,
-  spotifyArtistsOverlap,
+  spotifyArtistTokens,
+  spotifyArtistTokensOverlap,
   spotifyKey,
 } from "../../shared/spotifyMatch";
 
@@ -70,22 +71,71 @@ export interface LocalAlbumStats {
   downloaded: boolean;
 }
 
+interface IndexedAlbumTrack {
+  artistTokens: string[];
+}
+
+/**
+ * Build a lookup for every local album. Discography pages run one stats check
+ * per release card; without an index that is releases × library. Here the
+ * library is normalized once and each release only scans its own track list.
+ */
+export function createLocalAlbumStatsLookup(
+  tracks: readonly Track[],
+): (album: SpotifyAlbumSummary) => LocalAlbumStats {
+  const byAlbum = new Map<string, IndexedAlbumTrack[]>();
+
+  for (const track of tracks) {
+    const key = spotifyKey(track.album);
+    const entry: IndexedAlbumTrack = {
+      artistTokens: spotifyArtistTokens(track.artist),
+    };
+    const list = byAlbum.get(key);
+    if (list) list.push(entry);
+    else byAlbum.set(key, [entry]);
+  }
+
+  const statsCache = new WeakMap<SpotifyAlbumSummary, LocalAlbumStats>();
+
+  return (album) => {
+    const cached = statsCache.get(album);
+    if (cached) return cached;
+
+    const albumKey = spotifyKey(album.title);
+    const candidates = byAlbum.get(albumKey) ?? [];
+    const albumTokens = spotifyArtistTokens(album.artist);
+    let onPc = 0;
+    for (const candidate of candidates) {
+      if (spotifyArtistTokensOverlap(albumTokens, candidate.artistTokens)) {
+        onPc += 1;
+      }
+    }
+    const total = album.totalTracks || onPc;
+    const stats: LocalAlbumStats = {
+      onPc,
+      total,
+      downloaded: total > 0 && onPc >= total,
+    };
+    statsCache.set(album, stats);
+    return stats;
+  };
+}
+
+const albumStatsCache = new WeakMap<
+  readonly Track[],
+  (album: SpotifyAlbumSummary) => LocalAlbumStats
+>();
+
 export function localAlbumStats(
   tracks: readonly Track[],
   album: SpotifyAlbumSummary,
 ): LocalAlbumStats {
-  const albumKey = spotifyKey(album.title);
-  const onPc = tracks.filter(
-    (track) =>
-      spotifyKey(track.album) === albumKey &&
-      spotifyArtistsOverlap(album.artist, track.artist),
-  ).length;
-  const total = album.totalTracks || onPc;
-  return {
-    onPc,
-    total,
-    downloaded: total > 0 && onPc >= total,
-  };
+  let lookup = albumStatsCache.get(tracks);
+  if (!lookup) {
+    lookup = createLocalAlbumStatsLookup(tracks);
+    albumStatsCache.set(tracks, lookup);
+  }
+  return lookup(album);
 }
 
 export function isLossless(format: string): boolean {

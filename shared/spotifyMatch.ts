@@ -44,11 +44,22 @@ export interface LocalTrackLike {
 
 interface PreparedLocalTrack<T extends LocalTrackLike> {
   track: T;
+  /** Original library order, so equal-duration candidates stay deterministic. */
+  order: number;
   spotifyTrackId: string;
   titleKey: string;
   titlePhoneticKey: string;
   artistFull: string;
+  artistPhonetic: string;
   artistTokens: string[];
+}
+
+interface PreparedLocalIndex<T extends LocalTrackLike> {
+  bySpotifyId: Map<string, PreparedLocalTrack<T>[]>;
+  byTitleKey: Map<string, PreparedLocalTrack<T>[]>;
+  byTitlePhonetic: Map<string, PreparedLocalTrack<T>[]>;
+  byArtistKey: Map<string, PreparedLocalTrack<T>[]>;
+  byArtistPhonetic: Map<string, PreparedLocalTrack<T>[]>;
 }
 
 function compact(value: string): string {
@@ -99,9 +110,9 @@ function creditNames(
     .filter(Boolean);
 }
 
-function artistSetsOverlap(
-  spotifyTokens: string[],
-  localTokens: string[],
+export function spotifyArtistTokensOverlap(
+  spotifyTokens: readonly string[],
+  localTokens: readonly string[],
 ): boolean {
   if (spotifyTokens.length === 0 || localTokens.length === 0) return false;
   return spotifyTokens.some((spotifyArtist) =>
@@ -116,7 +127,7 @@ export function spotifyArtistsOverlap(
   spotifyArtist: string,
   localArtist: string,
 ): boolean {
-  return artistSetsOverlap(
+  return spotifyArtistTokensOverlap(
     spotifyArtistTokens(spotifyArtist),
     spotifyArtistTokens(localArtist),
   );
@@ -124,15 +135,37 @@ export function spotifyArtistsOverlap(
 
 function prepareLocal<T extends LocalTrackLike>(
   track: T,
+  order: number,
 ): PreparedLocalTrack<T> {
   return {
     track,
+    order,
     spotifyTrackId: track.spotifyTrackId?.trim() ?? "",
     titleKey: spotifyKey(track.title),
     titlePhoneticKey: artistPhoneticKey(track.title),
     artistFull: spotifyKey(track.artist),
+    artistPhonetic: artistPhoneticKey(track.artist),
     artistTokens: spotifyArtistTokens(track.artist),
   };
+}
+
+function pushIndex<T extends LocalTrackLike>(
+  map: Map<string, PreparedLocalTrack<T>[]>,
+  key: string,
+  item: PreparedLocalTrack<T>,
+): void {
+  if (!key) return;
+  const list = map.get(key);
+  if (list) list.push(item);
+  else map.set(key, [item]);
+}
+
+function addIndexed<T extends LocalTrackLike>(
+  target: Set<PreparedLocalTrack<T>>,
+  list: PreparedLocalTrack<T>[] | undefined,
+): void {
+  if (!list) return;
+  for (const item of list) target.add(item);
 }
 
 function spotifyTitle(track: SpotifyTrackLike): string {
@@ -174,13 +207,29 @@ function closestByDuration<T extends LocalTrackLike>(
 }
 
 /**
- * Build a matcher for one library snapshot. Pre-normalizing the library keeps
- * per-row matching cheap across liked songs, search and album tracklists.
+ * Build a matcher for one library snapshot. The library is indexed by Spotify
+ * id, normalized title, phonetic title and reversed artist/title keys, so a
+ * lookup only compares the handful of candidates that can actually match.
  */
 export function createSpotifyTrackMatcher<T extends LocalTrackLike>(
   localTracks: readonly T[],
 ): (track: SpotifyTrackLike) => T | null {
-  const prepared = localTracks.map(prepareLocal);
+  const index: PreparedLocalIndex<T> = {
+    bySpotifyId: new Map(),
+    byTitleKey: new Map(),
+    byTitlePhonetic: new Map(),
+    byArtistKey: new Map(),
+    byArtistPhonetic: new Map(),
+  };
+
+  localTracks.forEach((track, order) => {
+    const prepared = prepareLocal(track, order);
+    pushIndex(index.bySpotifyId, prepared.spotifyTrackId, prepared);
+    pushIndex(index.byTitleKey, prepared.titleKey, prepared);
+    pushIndex(index.byTitlePhonetic, prepared.titlePhoneticKey, prepared);
+    pushIndex(index.byArtistKey, prepared.artistFull, prepared);
+    pushIndex(index.byArtistPhonetic, prepared.artistPhonetic, prepared);
+  });
 
   return (track) => {
     const title = spotifyTitle(track);
@@ -188,10 +237,8 @@ export function createSpotifyTrackMatcher<T extends LocalTrackLike>(
 
     const spotifyId = track.id?.trim() ?? "";
     if (spotifyId) {
-      const byId = prepared.find(
-        (local) => local.spotifyTrackId === spotifyId,
-      );
-      if (byId) return byId.track;
+      const byId = index.bySpotifyId.get(spotifyId);
+      if (byId && byId.length > 0) return byId[0]!.track;
     }
 
     const titleKey = spotifyKey(title);
@@ -204,28 +251,52 @@ export function createSpotifyTrackMatcher<T extends LocalTrackLike>(
     ];
     if (spotifyTokens.length === 0) return null;
 
-    const matches = prepared.filter((local) => {
-      const titleMatches =
-        local.titleKey === titleKey ||
-        (titlePhoneticKey !== "" &&
-          local.titlePhoneticKey === titlePhoneticKey);
-      if (titleMatches && artistSetsOverlap(spotifyTokens, local.artistTokens)) {
-        return true;
-      }
-      return reversedTitleArtistMatch(titleKey, spotifyTokens, local);
-    });
+    const candidates = new Set<PreparedLocalTrack<T>>();
+    addIndexed(candidates, index.byTitleKey.get(titleKey));
+    addIndexed(candidates, index.byTitlePhonetic.get(titlePhoneticKey));
+    // Reversed tags: the local artist is the Spotify title.
+    addIndexed(candidates, index.byArtistKey.get(titleKey));
+    addIndexed(candidates, index.byArtistPhonetic.get(titlePhoneticKey));
+
+    const matches = [...candidates]
+      .filter((local) => {
+        const titleMatches =
+          local.titleKey === titleKey ||
+          (titlePhoneticKey !== "" &&
+            local.titlePhoneticKey === titlePhoneticKey);
+        if (
+          titleMatches &&
+          spotifyArtistTokensOverlap(spotifyTokens, local.artistTokens)
+        ) {
+          return true;
+        }
+        return reversedTitleArtistMatch(titleKey, spotifyTokens, local);
+      })
+      .sort((a, b) => a.order - b.order);
 
     return closestByDuration(matches, track.durationMs);
   };
 }
 
+type SpotifyMatcher = (track: SpotifyTrackLike) => LocalTrackLike | null;
+const matcherCache = new WeakMap<readonly LocalTrackLike[], SpotifyMatcher>();
+
 /**
  * Return the local track that satisfies a Spotify track, or null when the
  * track is not on PC. Title and at least one artist credit must match.
+ *
+ * The matcher is cached per library array: callers often check a whole
+ * tracklist or run in a render loop, and rebuilding the index each time is
+ * the difference between one pass and one pass per row.
  */
 export function isSpotifyTrackOnPC<T extends LocalTrackLike>(
   track: SpotifyTrackLike,
   localTracks: readonly T[],
 ): T | null {
-  return createSpotifyTrackMatcher(localTracks)(track);
+  let matcher = matcherCache.get(localTracks);
+  if (!matcher) {
+    matcher = createSpotifyTrackMatcher(localTracks) as SpotifyMatcher;
+    matcherCache.set(localTracks, matcher);
+  }
+  return matcher(track) as T | null;
 }

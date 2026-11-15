@@ -785,6 +785,13 @@ html .artist-card.lucid-glass-panel:hover {
   contain: layout style paint;
 }
 
+/* Discography cards can number 50+; offscreen cards skip layout and paint. */
+.discography-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 240px;
+  contain: layout style paint;
+}
+
 .artist-card-cover {
   border-radius: 50% !important;
   aspect-ratio: 1 / 1;
