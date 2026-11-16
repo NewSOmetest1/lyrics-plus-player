@@ -55,13 +55,29 @@ const PLACEHOLDER_TAG =
  * once instead of reusing the previous record. Missing value means this is the
  * first build that knows about the marker; current records are still reusable.
  */
-const SCANNER_VERSION = "2";
+const SCANNER_VERSION = "3";
 const SCANNER_VERSION_KEY = "scanner_version";
 
 /** Treat writer placeholders as if the tag were absent. */
 function realTag(value: string | undefined): string {
   const trimmed = value?.trim() ?? "";
   return PLACEHOLDER_TAG.test(trimmed) ? "" : trimmed;
+}
+
+/**
+ * Multi-value ARTIST/ALBUMARTIST tags (common in FLAC) collapse to their first
+ * value in music-metadata's singular fields. Rebuild the full credit list from
+ * the array fields, but keep a single comma-containing artist name intact.
+ */
+function joinedTag(
+  values: string[] | undefined,
+  fallback: string | undefined,
+): string {
+  const parts = (values ?? []).map(realTag).filter(Boolean);
+  const single = realTag(fallback);
+  if (parts.length <= 1) return single || parts[0] || "";
+  if (single && parts[0] !== single) return single;
+  return parts.join(", ");
 }
 
 export function isAudioFile(filePath: string): boolean {
@@ -364,14 +380,17 @@ async function readTrack(
   );
   const parsed = parseTrackFileName(fileBaseName, knownArtists);
   const taggedTitle = realTag(common.title);
-  const taggedArtist = realTag(common.artist);
+  const taggedArtist = joinedTag(common.artists, common.artist);
   const taggedAlbum = realTag(common.album);
   const title = taggedTitle || parsed.title || fileBaseName;
   const artist = taggedArtist || parsed.artist || "Unknown artist";
   // Tag-less single rips use the track name as the release name. Never leak
   // the "Unknown album" placeholder into the library UI.
   const album = taggedAlbum || parsed.title || title;
-  const taggedAlbumArtist = realTag(common.albumartist);
+  const taggedAlbumArtist = joinedTag(
+    common.albumartists,
+    common.albumartist,
+  );
   const albumArtist =
     taggedAlbumArtist || (artist === "Unknown artist" ? null : artist);
 
