@@ -13,6 +13,7 @@ import {
   Pencil,
   Play,
   RefreshCw,
+  Search,
   Shuffle,
   Trash2,
   X,
@@ -463,6 +464,7 @@ export function PlaylistView() {
     top: number;
   } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [search, setSearch] = useState("");
   const optionsButtonRef = useRef<HTMLButtonElement | null>(null);
   const optionsMenuRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -508,12 +510,41 @@ export function PlaylistView() {
     }));
   }, [spotifyMode, spotifySnapshot, tracks]);
 
-  const playlistSort = useTrackSorting(resolvedTracks, {
+  const searchQuery = liked ? search.trim().toLowerCase() : "";
+
+  const filteredResolvedTracks = useMemo(() => {
+    if (!searchQuery) return resolvedTracks;
+    return resolvedTracks.filter((track) =>
+      [
+        track.title,
+        track.artist,
+        track.album,
+        track.albumArtist ?? "",
+        track.format,
+        track.genre ?? "",
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(searchQuery),
+    );
+  }, [resolvedTracks, searchQuery]);
+
+  const filteredSpotifyRows = useMemo(() => {
+    if (!searchQuery) return spotifyRows;
+    return spotifyRows.filter(({ item }) =>
+      [item.title, item.artist, item.album]
+        .join(" ")
+        .toLowerCase()
+        .includes(searchQuery),
+    );
+  }, [spotifyRows, searchQuery]);
+
+  const playlistSort = useTrackSorting(filteredResolvedTracks, {
     storageKey: liked
       ? "lyricsplus.sort.liked"
       : "lyricsplus.sort.playlist",
   });
-  const spotifySort = useTrackSorting(spotifyRows, {
+  const spotifySort = useTrackSorting(filteredSpotifyRows, {
     storageKey: "lyricsplus.sort.liked",
     accessors: spotifyRowAccessors,
   });
@@ -609,6 +640,7 @@ export function PlaylistView() {
   useEffect(() => {
     setOptionsOpen(false);
     setConfirmDelete(false);
+    setSearch("");
   }, [selectedPlaylistId]);
 
   useEffect(() => {
@@ -759,7 +791,9 @@ export function PlaylistView() {
                 <p className="mt-2 text-[11px] text-white/35">
                   {spotifyMode ? (
                     <>
-                      {spotifySnapshot?.total ?? 0} tracks
+                      {searchQuery
+                        ? `${sortedSpotifyRows.length} of ${spotifySnapshot?.total ?? 0} tracks`
+                        : `${spotifySnapshot?.total ?? 0} tracks`}
                       <span className="mx-1.5 text-white/15">·</span>
                       {spotifySnapshot?.downloaded ?? 0} on PC
                       <span className="mx-1.5 text-white/15">·</span>
@@ -774,8 +808,11 @@ export function PlaylistView() {
                     </>
                   ) : liked ? (
                     <>
-                      {playlist.trackPaths.length}{" "}
-                      {playlist.trackPaths.length === 1 ? "song" : "songs"}
+                      {searchQuery
+                        ? `${sortedTracks.length} of ${playlist.trackPaths.length} songs`
+                        : `${playlist.trackPaths.length} ${
+                            playlist.trackPaths.length === 1 ? "song" : "songs"
+                          }`}
                       <span className="mx-1.5 text-white/15">·</span>
                       {formatTimeLong(totalMs)}
                     </>
@@ -825,6 +862,29 @@ export function PlaylistView() {
                 onReverseChange={activeSort.setReverse}
                 align="left"
               />
+
+              {liked && (
+                <label className="group relative block max-w-full">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/25" />
+                  <input
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search liked songs…"
+                    aria-label="Search liked songs"
+                    className="h-9 w-[230px] max-w-full rounded-full border border-white/[0.08] bg-white/[0.04] pl-9 pr-8 text-[12px] text-white placeholder:text-white/25 outline-none transition focus:border-accent/40 focus:bg-white/[0.06]"
+                  />
+                  {search && (
+                    <button
+                      type="button"
+                      onClick={() => setSearch("")}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-white/30 hover:text-white"
+                      aria-label="Clear search"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </label>
+              )}
 
               {spotifyMode && (
                 <>
@@ -975,6 +1035,25 @@ export function PlaylistView() {
                   {spotifySyncing ? "Syncing…" : "Sync with Spotify"}
                 </button>
               </div>
+            ) : sortedSpotifyRows.length === 0 ? (
+              <div className="flex min-h-[260px] flex-col items-center justify-center rounded-2xl border border-dashed border-white/[0.08] bg-white/[0.015] px-8 py-10 text-center">
+                <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/[0.05]">
+                  <Search className="h-6 w-6 text-white/30" />
+                </span>
+                <h2 className="mt-4 font-display text-[16px] font-bold text-white/80">
+                  No liked songs match “{search.trim()}”
+                </h2>
+                <p className="mt-1.5 max-w-sm text-[11.5px] leading-relaxed text-white/30">
+                  Try a different title, artist or album.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  className="mt-4 rounded-full border border-white/[0.1] bg-white/[0.05] px-4 py-2 text-[11px] font-semibold text-white/60 transition hover:bg-white/[0.09] hover:text-white"
+                >
+                  Clear search
+                </button>
+              </div>
             ) : (
               <>
                 <div
@@ -1045,6 +1124,25 @@ export function PlaylistView() {
                 Browse library
               </button>
             </div>
+          ) : sortedTracks.length === 0 ? (
+            <div className="flex min-h-[260px] flex-col items-center justify-center rounded-2xl border border-dashed border-white/[0.08] bg-white/[0.015] px-8 py-10 text-center">
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/[0.05]">
+                <Search className="h-6 w-6 text-white/30" />
+              </span>
+              <h2 className="mt-4 font-display text-[16px] font-bold text-white/80">
+                No liked songs match “{search.trim()}”
+              </h2>
+              <p className="mt-1.5 max-w-sm text-[11.5px] leading-relaxed text-white/30">
+                Try a different title, artist or album.
+              </p>
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="mt-4 rounded-full border border-white/[0.1] bg-white/[0.05] px-4 py-2 text-[11px] font-semibold text-white/60 transition hover:bg-white/[0.09] hover:text-white"
+              >
+                Clear search
+              </button>
+            </div>
           ) : (
             <>
               <div className="mb-1 grid h-8 grid-cols-[26px_minmax(0,1fr)_52px_26px] items-center gap-3 border-b border-white/[0.06] px-2.5 text-[9px] font-bold uppercase tracking-[0.18em] text-white/20 md:grid-cols-[26px_minmax(0,2.2fr)_minmax(0,1.4fr)_52px_26px]">
@@ -1082,7 +1180,8 @@ export function PlaylistView() {
             </>
           )}
 
-          {(spotifyMode ? spotifyRows.length > 0 : resolvedTracks.length > 0) && (
+          {((spotifyMode && sortedSpotifyRows.length > 0) ||
+            (!spotifyMode && sortedTracks.length > 0)) && (
             <p className="mt-4 text-center text-[10px] text-white/15">
               {spotifyMode
                 ? "Downloaded liked songs play from your library · missing tracks can be queued above"
