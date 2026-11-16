@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { motion } from "framer-motion";
-import { Heart, Pause, Play, Sparkles } from "lucide-react";
+import { Heart, Sparkles } from "lucide-react";
 import { usePlayerStore } from "@/store/playerStore";
 import { useTrackMenuStore } from "@/store/contextMenuStore";
 import { cn } from "@/lib/cn";
@@ -23,9 +23,7 @@ export function NowPlayingPanel() {
   const track = usePlayerStore((state) => state.currentTrack);
   const tracks = usePlayerStore((state) => state.playbackQueue);
   const queueIndex = usePlayerStore((state) => state.queueIndex);
-  const isPlaying = usePlayerStore((state) => state.isPlaying);
   const playTrack = usePlayerStore((state) => state.playTrack);
-  const togglePlay = usePlayerStore((state) => state.togglePlay);
   const openMenu = useTrackMenuStore((state) => state.openMenu);
   const liked = useTrackLiked(track);
 
@@ -53,7 +51,7 @@ export function NowPlayingPanel() {
           <motion.div
             whileHover={{ scale: 1.015 }}
             transition={{ duration: 0.35, ease: [0.2, 0, 0, 1] }}
-            className="group relative"
+            className="relative"
             onContextMenu={
               track
                 ? (event) => {
@@ -69,19 +67,6 @@ export function NowPlayingPanel() {
               className="aspect-square w-full rounded-xl shadow-[0_24px_60px_-18px_rgba(0,0,0,.85)]"
               iconClassName="h-10 w-10"
             />
-            <button
-              type="button"
-              onClick={() => void togglePlay()}
-              disabled={!track}
-              aria-label={isPlaying ? "Pause" : "Play"}
-              className="absolute bottom-3 right-3 flex h-11 w-11 translate-y-1.5 items-center justify-center rounded-full bg-accent text-black opacity-0 shadow-glow transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100 disabled:opacity-0"
-            >
-              {isPlaying ? (
-                <Pause className="h-4 w-4 fill-current" />
-              ) : (
-                <Play className="ml-0.5 h-4 w-4 fill-current" />
-              )}
-            </button>
           </motion.div>
         </div>
 
