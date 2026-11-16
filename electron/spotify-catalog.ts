@@ -64,6 +64,7 @@ interface WebTrack {
   };
   duration_ms?: number;
   track_number?: number;
+  playcount?: number | string | null;
 }
 
 interface WebSavedSearch {
@@ -119,10 +120,17 @@ interface PartnerEntity {
   };
   duration?: { totalMilliseconds?: number };
   trackNumber?: number;
+  playcount?: number | string | null;
   discography?: {
     topTracks?: { items?: Array<{ track?: PartnerEntity }> };
     albums?: { items?: Array<{ releases?: { items?: PartnerEntity[] } }> };
     singles?: { items?: Array<{ releases?: { items?: PartnerEntity[] } }> };
+    compilations?: {
+      items?: Array<{ releases?: { items?: PartnerEntity[] } }>;
+    };
+    /** Flat list of the albums behind the artist's most popular tracks. */
+    popularReleasesAlbums?: { items?: PartnerEntity[] };
+    latest?: PartnerEntity;
   };
 }
 
@@ -158,6 +166,14 @@ interface Credentials {
 interface Cached<T> {
   at: number;
   value: T;
+}
+
+/** Partner play counts arrive as a number, but older responses used strings. */
+function playcountValue(
+  value: number | string | null | undefined,
+): number | null {
+  const count = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(count) && count >= 0 ? Math.trunc(count) : null;
 }
 
 function pickImage(images: ImageSource[] | undefined): string | null {
@@ -241,6 +257,7 @@ function normalizeWebTrack(
     durationMs: track.duration_ms ?? 0,
     trackNumber: track.track_number ?? 0,
     spotifyUrl: `https://open.spotify.com/track/${id}`,
+    playcount: playcountValue(track.playcount),
   };
 }
 
@@ -341,6 +358,7 @@ function normalizePartnerTrack(
     durationMs: entity?.duration?.totalMilliseconds ?? 0,
     trackNumber: entity?.trackNumber ?? 0,
     spotifyUrl: `https://open.spotify.com/track/${id}`,
+    playcount: playcountValue(entity?.playcount),
   };
 }
 
@@ -471,6 +489,51 @@ export class SpotifyCatalogService {
     }
     await this.partnerClient.configure(credentials.spDc, credentials.spKey);
     return this.partnerClient;
+  }
+
+  /**
+   * Album titles for tracks whose album is not part of the artist's own
+   * discography (features and collaborations). The overview response exposes
+   * only the album URI, so resolve the few missing titles in small batches.
+   */
+  private async albumNames(
+    client: SpotifyWebClient,
+    albumIds: string[],
+  ): Promise<Map<string, string>> {
+    const names = new Map<string, string>();
+    const pending: string[] = [];
+    for (const id of new Set(albumIds)) {
+      if (!id) continue;
+      const cached = this.cached<string>(`album-name:${id}`);
+      if (cached) names.set(id, cached);
+      else pending.push(id);
+    }
+
+    const batchSize = 4;
+    for (let index = 0; index < pending.length; index += batchSize) {
+      const batch = pending.slice(index, index + batchSize);
+      const results = await Promise.allSettled(
+        batch.map(async (id) => {
+          const data = await client.graphql<PartnerAlbumData>(
+            "getAlbum",
+            {
+              uri: `spotify:album:${id}`,
+              locale: "",
+              offset: 0,
+              limit: 1,
+            },
+            ALBUM_HASH,
+          );
+          return { id, title: data.albumUnion?.name?.trim() ?? "" };
+        }),
+      );
+      for (const result of results) {
+        if (result.status !== "fulfilled" || !result.value.title) continue;
+        names.set(result.value.id, result.value.title);
+        this.remember(`album-name:${result.value.id}`, result.value.title);
+      }
+    }
+    return names;
   }
 
   private async searchPartner(
@@ -736,12 +799,32 @@ export class SpotifyCatalogService {
     const topTracks = (entity?.discography?.topTracks?.items ?? [])
       .map((item) => normalizePartnerTrack(item.track))
       .filter((track): track is SpotifyCatalogTrack => Boolean(track));
+    const popularReleases = (
+      entity?.discography?.popularReleasesAlbums?.items ?? []
+    )
+      .map((album) => normalizePartnerAlbum(album))
+      .filter((album): album is SpotifyAlbumSummary => Boolean(album));
+    const latest = normalizePartnerAlbum(entity?.discography?.latest);
     const albums = [
       ...releaseArray(entity?.discography?.albums?.items),
       ...releaseArray(entity?.discography?.singles?.items),
+      ...releaseArray(entity?.discography?.compilations?.items),
+      ...popularReleases,
+      ...(latest ? [latest] : []),
     ];
     const unique = new Map<string, SpotifyAlbumSummary>();
-    for (const album of albums) unique.set(album.id, album);
+    // The overview's top-track payload only carries an album URI. Fill the
+    // title from the releases embedded in the same response, which include
+    // popularReleasesAlbums for collaborations missing from the discography.
+    const albumNameById = new Map<string, string>();
+    for (const album of albums) {
+      unique.set(album.id, album);
+      albumNameById.set(album.id, album.title);
+    }
+    for (const track of topTracks) {
+      if (track.album || !track.albumId) continue;
+      track.album = albumNameById.get(track.albumId) ?? "";
+    }
     return {
       artist,
       topTracks,
@@ -768,6 +851,7 @@ export class SpotifyCatalogService {
     const warnings: string[] = [];
     let profile: SpotifyArtistSummary | null = null;
     let topTracks: SpotifyCatalogTrack[] = [];
+    let partnerTopTracks: SpotifyCatalogTrack[] = [];
     let albums: SpotifyAlbumSummary[] = [];
     let discography: SpotifyWebRelease[] = [];
 
@@ -820,8 +904,23 @@ export class SpotifyCatalogService {
           );
           const overview = this.partnerOverview(data);
           if (!profile) profile = overview.artist;
+          partnerTopTracks = overview.topTracks;
+          const missingAlbums = [
+            ...new Set(
+              partnerTopTracks
+                .filter((track) => !track.album && track.albumId)
+                .map((track) => track.albumId as string),
+            ),
+          ];
+          if (missingAlbums.length > 0) {
+            const names = await this.albumNames(client, missingAlbums);
+            for (const track of partnerTopTracks) {
+              if (track.album || !track.albumId) continue;
+              track.album = names.get(track.albumId) ?? "";
+            }
+          }
           if (topTracks.length === 0) {
-            topTracks = overview.topTracks.slice(0, 10);
+            topTracks = partnerTopTracks.slice(0, 10);
           }
           if (albums.length === 0) albums = overview.albums;
         } catch (error) {
@@ -840,6 +939,29 @@ export class SpotifyCatalogService {
       } catch (error) {
         warnings.push(`Spotify GraphQL artist failed: ${errorMessage(error)}`);
       }
+    }
+
+    // REST top-tracks carry no play counts and occasionally omit the album
+    // object. Overlay the partner result so Popular on Spotify has both, then
+    // append any partner tracks the REST response left out.
+    if (partnerTopTracks.length > 0) {
+      const partnerById = new Map(
+        partnerTopTracks.map((track) => [track.id, track]),
+      );
+      const merged = topTracks.map((track) => {
+        const partner = partnerById.get(track.id);
+        if (!partner) return track;
+        partnerById.delete(track.id);
+        return {
+          ...track,
+          album: track.album || partner.album,
+          albumId: track.albumId ?? partner.albumId,
+          coverUrl: track.coverUrl ?? partner.coverUrl ?? null,
+          playcount: track.playcount ?? partner.playcount ?? null,
+        };
+      });
+      merged.push(...partnerById.values());
+      topTracks = merged.slice(0, 10);
     }
 
     if (!profile && fallbackName?.trim()) {
@@ -985,46 +1107,64 @@ export class SpotifyCatalogService {
       warnings.push(errorMessage(error));
     }
 
-    if (!album || tracks.length === 0) {
-      try {
-        const client = await this.partner();
-        const data = await client.graphql<PartnerAlbumData>(
-          "getAlbum",
-          {
-            uri: `spotify:album:${albumId}`,
-            locale: "",
-            offset: 0,
-            limit: 300,
-          },
-          ALBUM_HASH,
+    // Always consult the partner album: the REST tracklist has no play counts,
+    // and a local match can also fill an album title REST omitted.
+    try {
+      const client = await this.partner();
+      const data = await client.graphql<PartnerAlbumData>(
+        "getAlbum",
+        {
+          uri: `spotify:album:${albumId}`,
+          locale: "",
+          offset: 0,
+          limit: 300,
+        },
+        ALBUM_HASH,
+      );
+      const entity = data.albumUnion;
+      album = album ?? normalizePartnerAlbum(entity);
+      const partnerTracks = (
+        entity?.tracksV2?.items ?? entity?.tracks?.items ?? []
+      )
+        .map((item) => normalizePartnerTrack(item.track))
+        .filter((track): track is SpotifyCatalogTrack => Boolean(track));
+      const albumTitle =
+        album?.title ?? fallback?.album ?? entity?.name?.trim() ?? "";
+      const albumArtist = album?.artist ?? fallback?.artist ?? "";
+      const coverUrl = album?.coverUrl ?? fallback?.coverUrl ?? null;
+
+      if (tracks.length === 0) {
+        tracks = partnerTracks.map((track) => ({
+          ...track,
+          artist: track.artist || albumArtist,
+          artists:
+            track.artists.length > 0
+              ? track.artists
+              : albumArtist
+                ? [albumArtist]
+                : [],
+          album: track.album || albumTitle,
+          albumId: track.albumId ?? albumId,
+          coverUrl: track.coverUrl ?? coverUrl,
+        }));
+      } else if (partnerTracks.length > 0) {
+        const partnerById = new Map(
+          partnerTracks.map((track) => [track.id, track]),
         );
-        const entity = data.albumUnion;
-        album = album ?? normalizePartnerAlbum(entity);
-        if (tracks.length === 0) {
-          const albumTitle =
-            album?.title ?? fallback?.album ?? entity?.name?.trim() ?? "";
-          const albumArtist =
-            album?.artist ?? fallback?.artist ?? "";
-          const coverUrl =
-            album?.coverUrl ?? fallback?.coverUrl ?? null;
-          tracks = (entity?.tracksV2?.items ?? entity?.tracks?.items ?? [])
-            .map((item) => normalizePartnerTrack(item.track))
-            .filter((track): track is SpotifyCatalogTrack => Boolean(track))
-            .map((track) => ({
-              ...track,
-              artist: track.artist || albumArtist,
-              artists:
-                track.artists.length > 0
-                  ? track.artists
-                  : albumArtist
-                    ? [albumArtist]
-                    : [],
-              album: track.album || albumTitle,
-              albumId: track.albumId ?? albumId,
-              coverUrl: track.coverUrl ?? coverUrl,
-            }));
-        }
-      } catch (error) {
+        tracks = tracks.map((track) => {
+          const partner = partnerById.get(track.id);
+          if (!partner) return track;
+          return {
+            ...track,
+            album: track.album || partner.album || albumTitle,
+            albumId: track.albumId ?? partner.albumId ?? albumId,
+            coverUrl: track.coverUrl ?? partner.coverUrl ?? coverUrl,
+            playcount: track.playcount ?? partner.playcount ?? null,
+          };
+        });
+      }
+    } catch (error) {
+      if (!album || tracks.length === 0) {
         warnings.push(`Spotify GraphQL album failed: ${errorMessage(error)}`);
       }
     }
@@ -1134,6 +1274,7 @@ export class SpotifyCatalogService {
         durationMs: track.durationMs,
         trackNumber: track.trackNumber,
         spotifyUrl: track.spotifyUrl,
+        playcount: track.playcount ?? null,
       }));
       if (normalized.length > 0) {
         return this.remember(cacheKey, normalized);

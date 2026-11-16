@@ -25,7 +25,12 @@ import type {
   Track,
 } from "@/types";
 import { cn } from "@/lib/cn";
-import { formatCount, formatTime, formatTimeLong } from "@/lib/format";
+import {
+  formatCount,
+  formatPlaycount,
+  formatTime,
+  formatTimeLong,
+} from "@/lib/format";
 import { findLocalTrackForSpotify } from "@/lib/spotifyMatch";
 import { streamQueueFromCatalog } from "@/lib/streamTrack";
 import {
@@ -133,6 +138,7 @@ const PopularTrackRow = memo(function PopularTrackRow({
   onPreview: () => void;
   onDownload: (track: SpotifyCatalogTrack) => void;
 }) {
+  const albumTitle = track.album.trim() || local?.album?.trim() || "";
   return (
     <div
       role="row"
@@ -144,7 +150,7 @@ const PopularTrackRow = memo(function PopularTrackRow({
         if (local && event.key === "Enter") onPlay(local);
       }}
       className={cn(
-        "group grid h-[52px] grid-cols-[26px_minmax(0,1fr)_112px_28px] items-center gap-3 rounded-xl px-2.5 outline-none transition-colors focus-visible:bg-white/[0.06] md:grid-cols-[26px_minmax(0,2.2fr)_minmax(0,1.4fr)_112px_28px]",
+        "group grid h-[52px] grid-cols-[26px_minmax(0,1fr)_112px_28px] items-center gap-3 rounded-xl px-2.5 outline-none transition-colors focus-visible:bg-white/[0.06] md:grid-cols-[26px_minmax(0,2.2fr)_minmax(0,1.4fr)_92px_112px_28px]",
         active ? "bg-white/[0.06]" : "hover:bg-white/[0.04]",
         previewing && "bg-accent/[0.055]",
         !local && "opacity-80 hover:opacity-100",
@@ -256,21 +262,29 @@ const PopularTrackRow = memo(function PopularTrackRow({
       </div>
 
       <span className="hidden min-w-0 truncate md:block">
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            openArtistForAlbum(track.artist, {
-              id: track.albumId,
-              title: track.album,
-            });
-          }}
-          onDoubleClick={(event) => event.stopPropagation()}
-          title={track.album}
-          className="block max-w-full truncate text-left text-[11px] text-white/30 transition hover:text-white/65 hover:underline hover:decoration-white/20 hover:underline-offset-2"
-        >
-          {track.album}
-        </button>
+        {albumTitle ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              openArtistForAlbum(track.artist, {
+                id: track.albumId,
+                title: albumTitle,
+              });
+            }}
+            onDoubleClick={(event) => event.stopPropagation()}
+            title={albumTitle}
+            className="block max-w-full truncate text-left text-[11px] text-white/30 transition hover:text-white/65 hover:underline hover:decoration-white/20 hover:underline-offset-2"
+          >
+            {albumTitle}
+          </button>
+        ) : (
+          <span className="text-[11px] text-white/20">—</span>
+        )}
+      </span>
+
+      <span className="hidden pr-5 text-right text-[10.5px] tabular-nums text-white/55 md:block">
+        {formatPlaycount(track.playcount)}
       </span>
 
       <div className="flex justify-end">
@@ -922,10 +936,11 @@ export function ArtistDetailView() {
                 title="Popular on Spotify"
                 meta={`Top ${popularTracks.length}`}
               />
-              <div className="mb-1 grid h-8 grid-cols-[26px_minmax(0,1fr)_112px_28px] items-center gap-3 border-b border-white/[0.06] px-2.5 text-[9px] font-bold uppercase tracking-[0.18em] text-white/20 md:grid-cols-[26px_minmax(0,2.2fr)_minmax(0,1.4fr)_112px_28px]">
+              <div className="mb-1 grid h-8 grid-cols-[26px_minmax(0,1fr)_112px_28px] items-center gap-3 border-b border-white/[0.06] px-2.5 text-[9px] font-bold uppercase tracking-[0.18em] text-white/20 md:grid-cols-[26px_minmax(0,2.2fr)_minmax(0,1.4fr)_92px_112px_28px]">
                 <span className="text-center">#</span>
                 <span>Title</span>
                 <span className="hidden md:block">Album</span>
+                <span className="hidden pr-5 text-right md:block">Plays</span>
                 <span className="flex justify-end">Status</span>
                 <span className="text-right">Time</span>
               </div>

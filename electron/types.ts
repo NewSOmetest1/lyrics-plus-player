@@ -249,6 +249,8 @@ export interface SpotifyCatalogTrack {
   durationMs: number;
   trackNumber: number;
   spotifyUrl: string;
+  /** Spotify total play count, when the partner query exposes it. */
+  playcount?: number | null;
 }
 
 export interface SpotifySearchCatalog {

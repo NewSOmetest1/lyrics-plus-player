@@ -21,7 +21,7 @@ import type {
   Track,
 } from "@/types";
 import { cn } from "@/lib/cn";
-import { formatCount, formatTime } from "@/lib/format";
+import { formatCount, formatPlaycount, formatTime } from "@/lib/format";
 import { findLocalTrackForSpotify } from "@/lib/spotifyMatch";
 import { streamQueueFromCatalog } from "@/lib/streamTrack";
 import { useCoverPalette } from "@/hooks/useCoverPalette";
@@ -42,7 +42,7 @@ import {
 import { SpotifyArtwork } from "@/components/spotify/SpotifyCards";
 
 const TRACK_GRID =
-  "grid-cols-[24px_minmax(0,1fr)_140px_28px] md:grid-cols-[28px_minmax(0,2fr)_200px_28px_52px]";
+  "grid-cols-[24px_minmax(0,1fr)_140px_28px] md:grid-cols-[28px_minmax(0,2fr)_92px_200px_28px_52px]";
 
 function downloadRequest(
   track: SpotifyCatalogTrack,
@@ -581,6 +581,7 @@ export function AlbumDetailView() {
             >
               <span className="text-center">#</span>
               <span>Title</span>
+              <span className="hidden pr-5 text-right md:block">Plays</span>
               <span className="text-right md:text-left">Status</span>
               <span />
               <span className="hidden text-right md:block">
@@ -691,6 +692,10 @@ export function AlbumDetailView() {
                           </span>
                         </p>
                       </div>
+
+                      <span className="hidden pr-5 text-right text-[10.5px] tabular-nums text-white/55 md:block">
+                        {formatPlaycount(track.playcount)}
+                      </span>
 
                       <div className="flex items-center justify-end gap-1 md:justify-start">
                         {!local && (

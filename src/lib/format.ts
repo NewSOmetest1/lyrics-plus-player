@@ -50,6 +50,14 @@ export function formatCount(count: number, singular: string, plural = `${singula
   return `${count.toLocaleString("en-US")} ${count === 1 ? singular : plural}`;
 }
 
+/** Spotify play count, right-aligned in track tables; em dash when absent. */
+export function formatPlaycount(count: number | null | undefined): string {
+  if (typeof count !== "number" || !Number.isFinite(count) || count <= 0) {
+    return "—";
+  }
+  return Math.trunc(count).toLocaleString("ru-RU");
+}
+
 export function formatSource(source: string | null): string {
   switch (source) {
     case "lrclib":

@@ -68,6 +68,7 @@ export interface SpotifyWebTrack {
   trackNumber: number;
   durationMs: number;
   spotifyUrl: string;
+  playcount?: number | null;
 }
 
 interface ImageSource {
@@ -107,6 +108,7 @@ interface PartnerTrack {
   trackNumber?: number;
   mediaType?: string;
   duration?: { totalMilliseconds?: number };
+  playcount?: number | string | null;
   artists?: {
     items?: Array<{ profile?: { name?: string } }>;
   };
@@ -191,6 +193,14 @@ function albumIdFromUri(uri: string | undefined): string | null {
   if (!uri) return null;
   const match = /^spotify:album:([A-Za-z0-9]+)$/.exec(uri);
   return match?.[1] ?? null;
+}
+
+/** Partner play counts arrive as a number, but older responses used strings. */
+function playcountValue(
+  value: number | string | null | undefined,
+): number | null {
+  const count = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(count) && count >= 0 ? Math.trunc(count) : null;
 }
 
 function releaseDateFromPartner(
@@ -724,6 +734,7 @@ export class SpotifyWebClient {
         trackNumber: track.trackNumber ?? 0,
         durationMs: track.duration?.totalMilliseconds ?? 0,
         spotifyUrl: `https://open.spotify.com/track/${id}`,
+        playcount: playcountValue(track.playcount),
       });
     }
     return tracks;
