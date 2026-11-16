@@ -297,7 +297,7 @@ function spotifyExplanation(status: number): string {
  * cookie and the page's own Authorization header is captured. Plain fetch to
  * get_access_token is blocked by Cloudflare with 403.
  */
-async function spotifyToken(spDc: string): Promise<{
+async function spotifyToken(spDc: string, spKey: string): Promise<{
   token: string | null;
   status: number | null;
   message?: string;
@@ -308,7 +308,7 @@ async function spotifyToken(spDc: string): Promise<{
   try {
     return await new Promise((resolve) => {
       const child = spawn(String(ELECTRON_BIN), ["--no-sandbox", helper], {
-        env: { ...process.env, SPOTIFY_SP_DC: spDc },
+        env: { ...process.env, SPOTIFY_SP_DC: spDc, SPOTIFY_SP_KEY: spKey },
         stdio: ["ignore", "pipe", "pipe"],
       });
       let stdout = "";
@@ -372,17 +372,20 @@ async function spotifyToken(spDc: string): Promise<{
   }
 }
 
-async function testSpotify(spDc: string): Promise<boolean> {
+async function testSpotify(spDc: string, spKey: string): Promise<boolean> {
   console.log(paint("\n[Spotify]", "bold"));
-  if (!spDc) {
-    console.log(paint("  Token:         missing sp_dc", "red"));
-    console.log(paint("  └─ save the cookie in Settings → Providers first", "red"));
+  if (!spDc || !spKey) {
+    console.log(
+      paint(`  Token:         missing ${!spDc ? "sp_dc" : "sp_key"}`, "red"),
+    );
+    console.log(paint("  └─ save both cookies in Settings → Providers first", "red"));
     return false;
   }
   console.log(`  sp_dc:         ${paint(`present (${spDc.length} chars)`, "green")}`);
+  console.log(`  sp_key:        ${paint(`present (${spKey.length} chars)`, "green")}`);
   console.log(`  Auth:          ${paint("Electron hidden window", "cyan")}`);
 
-  const auth = await spotifyToken(spDc);
+  const auth = await spotifyToken(spDc, spKey);
   console.log(`  Token status:  ${statusLabel(auth.status)}`);
   if (!auth.token) {
     console.log(paint(`  └─ ${auth.message ?? "could not obtain access token"}`, "red"));
@@ -691,6 +694,8 @@ async function testMusixmatch(): Promise<boolean> {
 async function main(): Promise<void> {
   const settings = readSettings();
   const spDc = process.env.SPOTIFY_SP_DC?.trim() || settings.spotify_sp_dc?.trim() || "";
+  const spKey =
+    process.env.SPOTIFY_SP_KEY?.trim() || settings.spotify_sp_key?.trim() || "";
   mmFallbackToken =
     process.env.MUSIXMATCH_USER_TOKEN?.trim() ||
     settings.musixmatch_user_token?.trim() ||
@@ -705,7 +710,7 @@ async function main(): Promise<void> {
   console.log(`  Config:  ${paint(configPath(), "dim")}`);
 
   const lrclibOk = await testLrclib();
-  const spotifyOk = await testSpotify(spDc);
+  const spotifyOk = await testSpotify(spDc, spKey);
   const musixmatchOk = await testMusixmatch();
 
   console.log(paint("\nSummary", "bold"));
