@@ -13,6 +13,14 @@
  * with the exact same implementation as the app.
  */
 
+const {
+  DEFAULT_PARTITION,
+  MAX_TIMEOUT_MS,
+  HiddenWindowTimeoutError,
+  withHiddenSpotifyWindow,
+  resetHiddenSpotifyWindow,
+} = require("./spotify-hidden-window.cjs");
+
 const CACHE_MS = 45 * 60 * 1000;
 const TOKEN_URL =
   "https://open.spotify.com/get_access_token?reason=transport&productType=web_player";
@@ -21,6 +29,7 @@ const USER_AGENT =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 const AUTH_POLL_MS = 700;
 const AUTH_TIMEOUT_MS = 5 * 60 * 1000;
+const HIDDEN_PARTITION = DEFAULT_PARTITION;
 
 let cache = null;
 let inflight = null;
@@ -39,6 +48,24 @@ function statusMessage(status) {
     default:
       return status ? `Spotify request failed with HTTP ${status}` : "Spotify did not return an access token.";
   }
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+}
+
+/** Bound every page call so one hung executeJavaScript cannot outlive a job. */
+function withTaskTimeout(promise, ms, message) {
+  let timer = null;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new HiddenWindowTimeoutError(message)),
+      Math.max(1, ms),
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 
 async function installCookie(session, name, value) {
@@ -233,16 +260,24 @@ async function logoutSpotify(deps) {
   const { session } = deps;
   const ses = session?.defaultSession;
   if (!ses) return { ok: false, message: "Electron session is not available." };
+  const sessions = [ses];
   try {
-    const cookies = await ses.cookies.get({});
-    for (const cookie of cookies) {
-      if (cookie.name !== "sp_dc" && cookie.name !== "sp_key") continue;
-      const url = cookieRemovalUrl(cookie);
-      if (!url) continue;
-      try {
-        await ses.cookies.remove(url, cookie.name);
-      } catch {
-        // try the next duplicate
+    sessions.push(session.fromPartition(HIDDEN_PARTITION));
+  } catch {
+    // Partition may be unavailable in a reduced test environment.
+  }
+  try {
+    for (const current of sessions) {
+      const cookies = await current.cookies.get({});
+      for (const cookie of cookies) {
+        if (cookie.name !== "sp_dc" && cookie.name !== "sp_key") continue;
+        const url = cookieRemovalUrl(cookie);
+        if (!url) continue;
+        try {
+          await current.cookies.remove(url, cookie.name);
+        } catch {
+          // try the next duplicate
+        }
       }
     }
   } finally {
@@ -258,8 +293,6 @@ function debugAuth(...args) {
 }
 
 async function obtainToken(deps, spDc, spKey) {
-  const { BrowserWindow, session } = deps;
-  const ses = session.defaultSession;
   const startedAt = Date.now();
   const debug = (...args) => {
     if (process.env.SPOTIFY_AUTH_DEBUG === "1") {
@@ -268,167 +301,201 @@ async function obtainToken(deps, spDc, spKey) {
   };
   debug("start");
 
-  await installCookie(ses, "sp_dc", spDc);
-  await installCookie(ses, "sp_key", spKey);
-
-  const win = new BrowserWindow({
-    show: false,
-    width: 1280,
-    height: 800,
-    webPreferences: {
-      sandbox: false,
-      contextIsolation: true,
-      nodeIntegration: false,
-      backgroundThrottling: false,
-    },
-  });
   try {
-    win.webContents.setUserAgent(USER_AGENT);
-  } catch {
-    // older Electron builds may not expose setUserAgent
-  }
+    return await withHiddenSpotifyWindow(
+      deps,
+      { partition: HIDDEN_PARTITION, timeoutMs: MAX_TIMEOUT_MS },
+      async ({ window: win, session: ses, timeoutMs }) => {
+        await installCookie(ses, "sp_dc", spDc);
+        await installCookie(ses, "sp_key", spKey);
 
-  let settled = false;
-  let lastStatus = null;
-  let resolveToken;
-  const tokenPromise = new Promise((resolve) => {
-    resolveToken = resolve;
-  });
+        let settled = false;
+        let lastStatus = null;
+        let resolveToken;
+        const tokenPromise = new Promise((resolve) => {
+          resolveToken = resolve;
+        });
 
-  const finish = (token, status) => {
-    if (settled) return;
-    if (token) {
-      settled = true;
-      resolveToken(token);
-      return;
-    }
-    if (status) lastStatus = status;
-  };
-
-  const filter = {
-    urls: ["https://api.spotify.com/*", "https://spclient.wg.spotify.com/*"],
-  };
-  const listener = (details) => {
-    try {
-      const headers = details?.requestHeaders || {};
-      const auth =
-        headers.Authorization ||
-        headers.authorization ||
-        headers.AUTHORIZATION ||
-        "";
-      const match = /^Bearer\s+(.+)$/i.exec(String(auth));
-      if (match?.[1]) {
-        debug("header bearer from", details.url);
-        finish(match[1].trim(), null);
-      }
-    } catch (error) {
-      // A webRequest listener must never throw: an uncaught exception would
-      // surface as a native Electron error dialog and kill the main process.
-      debug("header listener error", error instanceof Error ? error.message : String(error));
-    }
-  };
-
-  ses.webRequest.onSendHeaders(filter, listener);
-
-  const timeout = new Promise((resolve) => setTimeout(() => resolve(null), 20_000));
-
-  try {
-    // Do not await the full page load: open.spotify.com is heavy and the token
-    // is usually available much earlier. Keep the navigation promise handled.
-    void win.loadURL("https://open.spotify.com/").catch(() => undefined);
-    debug("loadURL issued");
-    win.webContents.once("dom-ready", () => debug("dom-ready"));
-
-    const runInPage = () =>
-      win.webContents.executeJavaScript(
-        `(async () => {
-          try {
-            const response = await fetch(${JSON.stringify(TOKEN_URL)}, {
-              credentials: "include",
-              headers: { accept: "application/json" },
-            });
-            const text = await response.text();
-            let payload = null;
-            try { payload = JSON.parse(text); } catch {}
-            return {
-              status: response.status,
-              token: payload && typeof payload.accessToken === "string" ? payload.accessToken : null,
-            };
-          } catch (error) {
-            return { status: null, token: null, error: String(error) };
+        const finish = (token, status) => {
+          if (settled) return;
+          if (token) {
+            settled = true;
+            resolveToken(token);
+            return;
           }
-        })()`,
-        true,
-      );
-
-    // Ask the page to perform the token call as soon as the document exists.
-    const pageAttempt = (async () => {
-      await Promise.race([
-        new Promise((resolve) => win.webContents.once("dom-ready", resolve)),
-        new Promise((resolve) => setTimeout(resolve, 4_000)),
-      ]);
-      if (settled) return null;
-      for (let attempt = 0; attempt < 3 && !settled; attempt += 1) {
-        try {
-          const result = await runInPage();
-          debug("page fetch attempt", attempt + 1, "status", result?.status, "token", Boolean(result?.token));
-          if (result?.token) {
-            finish(result.token, null);
-            return result.token;
-          }
-          if (result?.status) lastStatus = result.status;
-        } catch {
-          // page may still be navigating
-        }
-        await new Promise((resolve) => setTimeout(resolve, 800));
-      }
-      return null;
-    })();
-
-    const token = await Promise.race([tokenPromise, pageAttempt, timeout]);
-    if (token) {
-      cache = { token, spDc, spKey, expiresAt: Date.now() + CACHE_MS };
-      return { token, status: 200, message: "Token captured from Electron session." };
-    }
-
-    // Last chance: inspect the session cookie jar without throwing.
-    try {
-      const cookies = await ses.cookies.get({});
-      const hasCookie = (name, value) =>
-        cookies.some((cookie) => cookie.name === name && cookie.value === value);
-      if (!hasCookie("sp_dc", spDc) || !hasCookie("sp_key", spKey)) {
-        return {
-          token: null,
-          status: lastStatus ?? 401,
-          message: "sp_dc/sp_key cookies were rejected by the Electron session.",
+          if (status) lastStatus = status;
         };
-      }
-    } catch {
-      // ignore
-    }
 
-    return {
-      token: null,
-      status: lastStatus ?? 403,
-      message: statusMessage(lastStatus ?? 403),
-    };
+        const filter = {
+          urls: [
+            "https://api.spotify.com/*",
+            "https://spclient.wg.spotify.com/*",
+          ],
+        };
+        const listener = (details) => {
+          try {
+            const headers = details?.requestHeaders || {};
+            const auth =
+              headers.Authorization ||
+              headers.authorization ||
+              headers.AUTHORIZATION ||
+              "";
+            const match = /^Bearer\s+(.+)$/i.exec(String(auth));
+            if (match?.[1]) {
+              debug("header bearer from", details.url);
+              finish(match[1].trim(), null);
+            }
+          } catch (error) {
+            // A webRequest listener must never throw: an uncaught exception
+            // would surface as a native Electron error dialog and kill the
+            // main process.
+            debug(
+              "header listener error",
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        };
+
+        ses.webRequest.onSendHeaders(filter, listener);
+
+        const deadline = Date.now() + Math.max(1_000, timeoutMs - 750);
+        const remaining = () => Math.max(0, deadline - Date.now());
+
+        const runInPage = () =>
+          withTaskTimeout(
+            win.webContents.executeJavaScript(
+              `(async () => {
+                try {
+                  const response = await fetch(${JSON.stringify(TOKEN_URL)}, {
+                    credentials: "include",
+                    headers: { accept: "application/json" },
+                  });
+                  const text = await response.text();
+                  let payload = null;
+                  try { payload = JSON.parse(text); } catch {}
+                  return {
+                    status: response.status,
+                    token: payload && typeof payload.accessToken === "string" ? payload.accessToken : null,
+                  };
+                } catch (error) {
+                  return { status: null, token: null, error: String(error) };
+                }
+              })()`,
+              true,
+            ),
+            Math.min(3_000, remaining() || 1),
+            "Spotify token page request timed out.",
+          );
+
+        try {
+          // Do not await the full page load: open.spotify.com is heavy and the
+          // token is usually available much earlier. Keep the navigation
+          // promise handled.
+          void win.loadURL("https://open.spotify.com/").catch(() => undefined);
+          debug("loadURL issued");
+
+          const pageAttempt = (async () => {
+            // Give the page a moment to start its own authenticated request.
+            await delay(Math.min(1_200, remaining()));
+            for (
+              let attempt = 0;
+              attempt < 3 && !settled && remaining() > 0;
+              attempt += 1
+            ) {
+              try {
+                const result = await runInPage();
+                debug(
+                  "page fetch attempt",
+                  attempt + 1,
+                  "status",
+                  result?.status,
+                  "token",
+                  Boolean(result?.token),
+                );
+                if (result?.token) {
+                  finish(result.token, null);
+                  return result.token;
+                }
+                if (result?.status) lastStatus = result.status;
+              } catch {
+                // Page may still be navigating or the call timed out.
+              }
+              await delay(Math.min(800, remaining()));
+            }
+            return null;
+          })();
+
+          const timeout = delay(remaining()).then(() => null);
+          const token = await Promise.race([
+            tokenPromise,
+            pageAttempt,
+            timeout,
+          ]);
+
+          if (token) {
+            cache = {
+              token,
+              spDc,
+              spKey,
+              expiresAt: Date.now() + CACHE_MS,
+            };
+            return {
+              token,
+              status: 200,
+              message: "Token captured from Electron session.",
+            };
+          }
+
+          // Last chance: inspect the session cookie jar without throwing.
+          try {
+            const cookies = await ses.cookies.get({});
+            const hasCookie = (name, value) =>
+              cookies.some(
+                (cookie) => cookie.name === name && cookie.value === value,
+              );
+            if (!hasCookie("sp_dc", spDc) || !hasCookie("sp_key", spKey)) {
+              return {
+                token: null,
+                status: lastStatus ?? 401,
+                message:
+                  "sp_dc/sp_key cookies were rejected by the Electron session.",
+              };
+            }
+          } catch {
+            // ignore
+          }
+
+          return {
+            token: null,
+            status: lastStatus ?? 403,
+            message: statusMessage(lastStatus ?? 403),
+          };
+        } finally {
+          try {
+            ses.webRequest.onSendHeaders(null);
+          } catch {
+            // Listener already removed.
+          }
+        }
+      },
+    );
   } catch (error) {
+    if (error instanceof HiddenWindowTimeoutError) {
+      return {
+        token: null,
+        status: null,
+        message: `Spotify auth window timed out after ${
+          MAX_TIMEOUT_MS / 1000
+        }s.`,
+      };
+    }
     return {
       token: null,
-      status: lastStatus ?? null,
-      message: `Electron auth window failed: ${error instanceof Error ? error.message : String(error)}`,
+      status: null,
+      message: `Electron auth window failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
     };
-  } finally {
-    try {
-      ses.webRequest.onSendHeaders(null);
-    } catch {
-      // listener already removed
-    }
-    try {
-      if (!win.isDestroyed()) win.destroy();
-    } catch {
-      // ignore destroy races
-    }
   }
 }
 
@@ -463,6 +530,7 @@ async function getSpotifyAccessToken(deps, spDc, spKey, force = false) {
 
 function clearSpotifyTokenCache() {
   cache = null;
+  resetHiddenSpotifyWindow();
 }
 
 /**
@@ -482,27 +550,7 @@ function clearSpotifyTokenCache() {
  */
 async function searchSpotifyTracksViaWeb(deps, spDc, spKey, query, timeoutMs = 12_000) {
   if (!spDc || !spKey || !query) return [];
-  const { BrowserWindow, session } = deps;
-  const ses = session.defaultSession;
-  await installCookie(ses, "sp_dc", spDc);
-  await installCookie(ses, "sp_key", spKey);
-
-  const win = new BrowserWindow({
-    show: false,
-    width: 1280,
-    height: 900,
-    webPreferences: {
-      sandbox: false,
-      contextIsolation: true,
-      nodeIntegration: false,
-      backgroundThrottling: false,
-    },
-  });
-  try {
-    win.webContents.setUserAgent(USER_AGENT);
-  } catch {
-    // older Electron builds may not expose setUserAgent
-  }
+  const budget = Math.min(Math.max(1_000, timeoutMs), MAX_TIMEOUT_MS);
 
   const scrape = `(() => {
     const out = [];
@@ -529,35 +577,65 @@ async function searchSpotifyTracksViaWeb(deps, spDc, spKey, query, timeoutMs = 1
 
   const startedAt = Date.now();
   try {
-    void win
-      .loadURL(`https://open.spotify.com/search/${encodeURIComponent(query)}`)
-      .catch(() => undefined);
+    return await withHiddenSpotifyWindow(
+      deps,
+      { partition: HIDDEN_PARTITION, timeoutMs: budget },
+      async ({ window: win, session: ses, signal }) => {
+        await installCookie(ses, "sp_dc", spDc);
+        await installCookie(ses, "sp_key", spKey);
 
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      let rows = [];
-      try {
-        rows = await win.webContents.executeJavaScript(scrape, true);
-      } catch {
-        rows = [];
-      }
-      if (Array.isArray(rows) && rows.length > 0) {
-        debugSearch(`web search "${query}" found ${rows.length} row(s) in ${Date.now() - startedAt}ms`);
-        return rows;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 350));
-    }
-    debugSearch(`web search "${query}" timed out after ${Date.now() - startedAt}ms`);
-    return [];
+        const deadline = Date.now() + Math.max(1_000, budget - 500);
+        try {
+          void win
+            .loadURL(
+              `https://open.spotify.com/search/${encodeURIComponent(query)}`,
+            )
+            .catch(() => undefined);
+
+          while (Date.now() < deadline && !signal.aborted) {
+            let rows = [];
+            try {
+              rows = await withTaskTimeout(
+                win.webContents.executeJavaScript(scrape, true),
+                Math.min(2_500, Math.max(250, deadline - Date.now())),
+                "Spotify search scrape timed out.",
+              );
+            } catch {
+              rows = [];
+            }
+            if (Array.isArray(rows) && rows.length > 0) {
+              debugSearch(
+                `web search "${query}" found ${rows.length} row(s) in ${
+                  Date.now() - startedAt
+                }ms`,
+              );
+              return rows;
+            }
+            await delay(350);
+          }
+          debugSearch(
+            `web search "${query}" timed out after ${
+              Date.now() - startedAt
+            }ms`,
+          );
+          return [];
+        } catch (error) {
+          debugSearch(
+            `web search failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+          return [];
+        }
+      },
+    );
   } catch (error) {
-    debugSearch(`web search failed: ${error instanceof Error ? error.message : String(error)}`);
+    debugSearch(
+      `web search failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
     return [];
-  } finally {
-    try {
-      if (!win.isDestroyed()) win.destroy();
-    } catch {
-      // ignore destroy races
-    }
   }
 }
 

@@ -4,14 +4,14 @@ import type {
   Session,
 } from "electron";
 
+import { withHiddenSpotifyWindow } from "./spotify-hidden-window.cjs";
+
 const PARTNER_ENDPOINT =
   "https://api-partner.spotify.com/pathfinder/v2/query";
 const PARTITION = "lyrics-plus-spotify-releases";
-const USER_AGENT =
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 const REQUEST_TIMEOUT_MS = 20_000;
 const HEADER_TTL_MS = 20 * 60 * 1000;
-const WARMUP_TIMEOUT_MS = 20_000;
+const HIDDEN_WINDOW_TIMEOUT_MS = 15_000;
 /**
  * Artist pages render one card per release. Cap the walk so a malformed or
  * repeating partner response cannot turn into an unbounded request loop.
@@ -336,72 +336,75 @@ export class SpotifyWebClient {
   }
 
   private async captureHeaders(): Promise<void> {
-    const ses = this.session;
-    if (!ses) throw new Error("Spotify web session is not ready.");
+    if (!this.session) throw new Error("Spotify web session is not ready.");
+
+    // A capture must not keep a stale header bag: the listener below only
+    // accepts the first authenticated request it sees.
+    this.headers = null;
+    this.headersCapturedAt = 0;
 
     let settle: (() => void) | null = null;
     const captured = new Promise<void>((resolve) => {
       settle = resolve;
     });
 
-    const listener = (
-      details: Electron.OnBeforeSendHeadersListenerDetails,
-      callback: (response: Electron.BeforeSendResponse) => void,
-    ): void => {
-      try {
-        if (
-          !this.headers &&
-          details.method === "POST" &&
-          details.url.includes("api-partner.spotify.com")
-        ) {
-          const headers = sanitizeHeaders(details.requestHeaders);
-          if (headers.authorization) {
-            this.headers = headers;
-            this.headersCapturedAt = Date.now();
-            settle?.();
-          }
-        }
-      } catch {
-        // Never let a webRequest listener throw.
-      }
-      callback({ requestHeaders: details.requestHeaders });
-    };
-
-    ses.webRequest.onBeforeSendHeaders(
-      { urls: ["https://api-partner.spotify.com/*"] },
-      listener,
-    );
-
-    let win: BrowserWindow | null = null;
     try {
-      win = new this.deps.BrowserWindow({
-        show: false,
-        width: 1280,
-        height: 900,
-        webPreferences: {
-          partition: PARTITION,
-          sandbox: false,
-          contextIsolation: true,
-          nodeIntegration: false,
-          backgroundThrottling: false,
+      await withHiddenSpotifyWindow(
+        this.deps,
+        { partition: PARTITION, timeoutMs: HIDDEN_WINDOW_TIMEOUT_MS },
+        async ({ window, session, timeoutMs }) => {
+          const listener = (
+            details: Electron.OnBeforeSendHeadersListenerDetails,
+            callback: (response: Electron.BeforeSendResponse) => void,
+          ): void => {
+            try {
+              if (
+                !this.headers &&
+                details.method === "POST" &&
+                details.url.includes("api-partner.spotify.com")
+              ) {
+                const headers = sanitizeHeaders(details.requestHeaders);
+                if (headers.authorization) {
+                  this.headers = headers;
+                  this.headersCapturedAt = Date.now();
+                  settle?.();
+                }
+              }
+            } catch {
+              // Never let a webRequest listener throw.
+            }
+            callback({ requestHeaders: details.requestHeaders });
+          };
+
+          session.webRequest.onBeforeSendHeaders(
+            { urls: ["https://api-partner.spotify.com/*"] },
+            listener,
+          );
+
+          try {
+            void window
+              .loadURL("https://open.spotify.com/collection/artists")
+              .catch(() => undefined);
+            // Give the page time to issue its own partner request, but stop a
+            // little before the controller's hard cap so this job can fail
+            // cleanly instead of being aborted mid-flight.
+            await Promise.race([
+              captured,
+              delay(Math.max(1_000, timeoutMs - 750)),
+            ]);
+          } finally {
+            try {
+              session.webRequest.onBeforeSendHeaders(null);
+            } catch {
+              // Listener already removed.
+            }
+          }
         },
-      });
-      win.webContents.setUserAgent(USER_AGENT);
-      void win.loadURL("https://open.spotify.com/collection/artists").catch(
-        () => undefined,
       );
-      await Promise.race([captured, delay(WARMUP_TIMEOUT_MS)]);
-    } finally {
-      try {
-        ses.webRequest.onBeforeSendHeaders(null);
-      } catch {
-        // Listener already removed.
-      }
-      try {
-        if (win && !win.isDestroyed()) win.destroy();
-      } catch {
-        // Ignore destroy races.
-      }
+    } catch (error) {
+      this.headers = null;
+      this.headersCapturedAt = 0;
+      throw error;
     }
   }
 
@@ -423,8 +426,8 @@ export class SpotifyWebClient {
   ): Promise<T> {    let lastError: Error | null = null;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        // Header capture can legitimately take up to WARMUP_TIMEOUT_MS. Keep
-        // it outside the request timeout, otherwise the first synced artist
+        // Header capture has its own 15 second hidden-window budget. Keep it
+        // outside the request timeout, otherwise the first synced artist
         // batch aborts before its GraphQL request even starts.
         const headers = await this.requestHeaders();
         const controller = new AbortController();
