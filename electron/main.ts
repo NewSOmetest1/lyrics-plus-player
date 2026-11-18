@@ -855,6 +855,7 @@ function registerIpc(): void {
     store.deleteTrackFile(trackId),
   );
   ipcMain.handle("clear_lyrics_cache", (_event, trackId: number) => store.clearLyrics(trackId));
+  ipcMain.handle("clear_all_lyrics_cache", () => store.clearAllLyrics());
 
   ipcMain.handle("playlists:getAll", () => playlists.getAll());
 

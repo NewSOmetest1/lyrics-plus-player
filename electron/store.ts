@@ -414,6 +414,14 @@ export class LibraryStore {
     this.save();
   }
 
+  clearAllLyrics(): number {
+    const removed = Object.keys(this.data.lyrics).length;
+    if (removed === 0) return 0;
+    this.data.lyrics = {};
+    this.save();
+    return removed;
+  }
+
   getSetting(key: string): string | undefined {
     return this.data.settings[key];
   }

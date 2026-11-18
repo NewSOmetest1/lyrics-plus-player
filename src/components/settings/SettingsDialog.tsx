@@ -525,6 +525,8 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const [testResults, setTestResults] = useState<
     Partial<Record<ProviderId, "success" | "error">>
   >({});
+  const [clearingLyricsCache, setClearingLyricsCache] = useState(false);
+  const [confirmClearLyrics, setConfirmClearLyrics] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -541,6 +543,10 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     setTestingProvider(null);
     setTestResults({});
   }, [open]);
+
+  useEffect(() => {
+    setConfirmClearLyrics(false);
+  }, [open, tab]);
 
   useEffect(() => {
     if (!open || tab !== "folders") return;
@@ -584,6 +590,35 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
       title: "Track offsets reset",
       description: "All per-track delays are back to 0 ms.",
     });
+  };
+
+  const clearLyricsCache = async () => {
+    if (!isDesktop || clearingLyricsCache) return;
+    if (!confirmClearLyrics) {
+      setConfirmClearLyrics(true);
+      return;
+    }
+    setConfirmClearLyrics(false);
+    setClearingLyricsCache(true);
+    try {
+      const removed = await backend.clearAllLyricsCache();
+      useToastStore.getState().push({
+        kind: removed > 0 ? "success" : "info",
+        title: removed > 0 ? "Lyrics cache cleared" : "Lyrics cache already empty",
+        description:
+          removed > 0
+            ? `${removed} cached ${removed === 1 ? "track" : "tracks"} removed. Fresh lyrics load on the next play.`
+            : "No cached lyrics were stored.",
+      });
+    } catch (error) {
+      useToastStore.getState().push({
+        kind: "error",
+        title: "Could not clear lyrics cache",
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setClearingLyricsCache(false);
+    }
   };
 
   const handleAddFolder = async () => {
@@ -946,6 +981,47 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                       estimated from each line. Disable it to keep clean line-by-line
                       highlighting even when word data exists.
                     </p>
+                  </Section>
+
+                  <Section
+                    icon={<Trash2 className="h-3.5 w-3.5" />}
+                    title="Lyrics cache"
+                    description="Provider results saved to your local library"
+                  >
+                    <div className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-medium text-white/55">
+                          Saved lyrics
+                        </p>
+                        <p className="mt-0.5 text-[10px] leading-relaxed text-white/25">
+                          Clear cached lyrics to force fresh provider lookups on the
+                          next play. Your files and settings stay untouched.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void clearLyricsCache()}
+                        disabled={!isDesktop || clearingLyricsCache}
+                        title="Remove all cached lyrics"
+                        className={cn(
+                          "inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold transition active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40",
+                          confirmClearLyrics
+                            ? "border-rose-400/35 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
+                            : "border-red-400/20 bg-red-500/[0.08] text-red-300 hover:border-red-400/35 hover:bg-red-500/15 hover:text-red-200",
+                        )}
+                      >
+                        {clearingLyricsCache ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3 w-3" />
+                        )}
+                        {clearingLyricsCache
+                          ? "Clearing…"
+                          : confirmClearLyrics
+                            ? "Confirm clear"
+                            : "Clear cache"}
+                      </button>
+                    </div>
                   </Section>
 
                   <Section

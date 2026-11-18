@@ -1765,6 +1765,11 @@ export const backend = {
     await electronApi().invoke<void>("clear_lyrics_cache", trackId);
   },
 
+  async clearAllLyricsCache(): Promise<number> {
+    if (!isElectron) return 0;
+    return electronApi().invoke<number>("clear_all_lyrics_cache");
+  },
+
   async downloadCover(
     request: CoverDownloadRequest,
   ): Promise<CoverDownloadResult> {
