@@ -58,7 +58,7 @@ function TransportButton({
       aria-label={label}
       onClick={onClick}
       className={cn(
-        "relative flex shrink-0 items-center justify-center rounded-full outline-none transition-[color,opacity,background-color,transform] duration-200 hover:bg-white/[0.06] hover:opacity-100 active:scale-95 focus-visible:ring-2 focus-visible:ring-accent/60",
+        "lucid-transport-button relative flex shrink-0 items-center justify-center rounded-full outline-none transition-[color,opacity,background-color,transform] duration-200 hover:bg-white/[0.06] hover:opacity-100 active:scale-95 focus-visible:ring-2 focus-visible:ring-accent/60",
         compact ? "h-6 w-6" : "h-7 w-7",
         active ? "text-accent opacity-100" : "text-white opacity-60",
         className,
@@ -241,14 +241,7 @@ export function PlayerBar({
 
             {track && !compactPlayer && (
               <div className="mt-1 flex items-center gap-1.5">
-                <span
-                  className={cn(
-                    "rounded-[4px] border px-1.5 py-px text-[8px] font-bold tracking-[0.08em]",
-                    track.isStream
-                      ? "border-accent/30 bg-accent/[0.13] text-accent"
-                      : "border-accent/25 bg-accent/[0.09] text-accent/90",
-                  )}
-                >
+                <span className="format-badge format-badge--accent rounded-[4px] border px-1.5 py-px text-[8px] font-bold tracking-[0.08em]">
                   {streamFormatLabel(track)}
                 </span>
                 <span className="hidden truncate text-[9px] text-white/25 xl:inline">
@@ -266,7 +259,7 @@ export function PlayerBar({
                 if (track) toggleTrackLike(track);
               }}
               disabled={!track}
-              className={cn(liked && "text-accent")}
+              className={cn("lucid-player-icon", liked && "text-accent")}
             >
               <Heart className={cn("h-3.5 w-3.5", liked && "fill-current")} />
             </IconButton>
@@ -314,7 +307,7 @@ export function PlayerBar({
               aria-label={isPlaying ? "Pause" : "Play"}
               title={isPlaying ? "Pause (Space)" : "Play (Space)"}
               className={cn(
-                "mx-0.5 flex shrink-0 items-center justify-center rounded-full bg-white text-black shadow-[0_4px_16px_rgba(0,0,0,.35)] outline-none transition-transform duration-200 hover:scale-[1.06] focus-visible:ring-2 focus-visible:ring-accent disabled:pointer-events-none disabled:opacity-35",
+                "lucid-play-button mx-0.5 flex shrink-0 items-center justify-center rounded-full outline-none transition-transform duration-200 hover:scale-[1.06] focus-visible:ring-2 focus-visible:ring-accent disabled:pointer-events-none disabled:opacity-35",
                 compactPlayer ? "h-[26px] w-[26px]" : "h-8 w-8",
               )}
             >
@@ -389,7 +382,7 @@ export function PlayerBar({
 
         {/* Output + view controls */}
         <div className="flex min-w-0 flex-1 basis-0 items-center justify-end gap-1">
-          <span className="mr-1 hidden font-mono text-[10px] tabular-nums text-white/25 xl:inline">
+          <span className="lucid-player-time mr-1 hidden font-mono text-[10px] tabular-nums text-white/25 xl:inline">
             {formatTime(durationMs)}
           </span>
           <IconButton
@@ -398,6 +391,7 @@ export function PlayerBar({
             onClick={onToggleRightPanel}
             active={rightPanelOpen}
             className={cn(
+              "lucid-player-icon",
               rightPanelOpen && "!bg-accent-soft !text-accent",
             )}
           >

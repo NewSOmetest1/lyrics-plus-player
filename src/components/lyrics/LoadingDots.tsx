@@ -13,7 +13,8 @@ export function LoadingDots({ className, label = "Finding lyrics" }: LoadingDots
         {[0, 1, 2].map((index) => (
           <motion.span
             key={index}
-            className="h-2 w-2 rounded-full bg-white/80"
+            className="h-2 w-2 rounded-full"
+            style={{ backgroundColor: "var(--lyric-dot-active)" }}
             animate={{
               y: [0, -7, 0],
               opacity: [0.28, 1, 0.28],

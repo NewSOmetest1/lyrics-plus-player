@@ -77,7 +77,7 @@ function HistoryControls() {
         onClick={goBack}
         disabled={!canGoBack}
         style={canGoBack ? undefined : { opacity: 0.3, pointerEvents: "none" }}
-        className="pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full text-white/60 outline-none transition-[color,background-color,transform] duration-150 hover:bg-white/[0.08] hover:text-white active:scale-95 focus-visible:ring-2 focus-visible:ring-accent/60 [-webkit-app-region:no-drag]"
+        className="titlebar-nav-button pointer-events-auto flex items-center justify-center outline-none transition-[color,background-color,transform] duration-150 active:scale-95 focus-visible:ring-2 focus-visible:ring-accent/60 [-webkit-app-region:no-drag]"
       >
         <ChevronLeft className="h-[15px] w-[15px]" strokeWidth={2.2} />
       </button>
@@ -90,7 +90,7 @@ function HistoryControls() {
         style={
           canGoForward ? undefined : { opacity: 0.3, pointerEvents: "none" }
         }
-        className="pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full text-white/60 outline-none transition-[color,background-color,transform] duration-150 hover:bg-white/[0.08] hover:text-white active:scale-95 focus-visible:ring-2 focus-visible:ring-accent/60 [-webkit-app-region:no-drag]"
+        className="titlebar-nav-button pointer-events-auto flex items-center justify-center outline-none transition-[color,background-color,transform] duration-150 active:scale-95 focus-visible:ring-2 focus-visible:ring-accent/60 [-webkit-app-region:no-drag]"
       >
         <ChevronRight className="h-[15px] w-[15px]" strokeWidth={2.2} />
       </button>
@@ -138,12 +138,14 @@ export function TitleBar() {
           <span
             className={cn(
               "h-1.5 w-1.5 shrink-0 rounded-full transition-colors",
-              isPlaying ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,.8)]" : "bg-white/25",
+              isPlaying
+                ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,.8)]"
+                : "bg-[var(--lyric-dot-base)]",
             )}
           />
           <span className="titlebar-track-text">
-            {currentTrack.title}
-            <span className="text-white/20"> — </span>
+            <span className="titlebar-track-title">{currentTrack.title}</span>
+            <span className="titlebar-track-sep"> — </span>
             {currentTrack.artist}
           </span>
         </div>

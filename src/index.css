@@ -85,6 +85,78 @@
   --lucid-ambient-saturate: 150%;
   --lucid-ambient-opacity: 0.8;
   --lucid-ambient-scale: 1.1;
+
+  /* Dark-mode typography tokens. Light-mode overrides live at the end of this
+     file so they can win against the unlayered dark component rules. */
+  --lyric-active-color: #ffffff;
+  --lyric-inactive-color: #ffffff;
+  --lyric-inactive-opacity: 0.35;
+  --lyric-hover-color: rgba(255, 255, 255, 0.72);
+  --lyric-unsynced-color: #ffffff;
+  --lyric-unsynced-hover: rgba(255, 255, 255, 0.8);
+  --lyric-text-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  --lyric-highlight-ring: rgba(255, 255, 255, 0.04);
+  --lyric-dot-base: rgba(255, 255, 255, 0.25);
+  --lyric-dot-active: #ffffff;
+  --lyric-dot-peak: rgba(255, 255, 255, 0.78);
+  --titlebar-fg: rgba(255, 255, 255, 0.35);
+  --titlebar-fg-muted: rgba(255, 255, 255, 0.35);
+  --titlebar-fg-faint: rgba(255, 255, 255, 0.2);
+  --titlebar-button-fg: rgba(255, 255, 255, 0.42);
+  --titlebar-button-hover-fg: #ffffff;
+  --titlebar-button-hover-bg: rgba(255, 255, 255, 0.08);
+  --ui-pill-bg: rgba(255, 255, 255, 0.04);
+  --ui-pill-border: rgba(255, 255, 255, 0.05);
+  --ui-pill-fg: rgba(255, 255, 255, 0.45);
+  --ui-pill-hover-bg: rgba(255, 255, 255, 0.08);
+  --ui-pill-hover-fg: rgba(255, 255, 255, 0.8);
+  --ui-scrollbar-thumb: rgba(255, 255, 255, 0.14);
+  --ui-scrollbar-thumb-hover: rgba(255, 255, 255, 0.28);
+
+  /* Player controls: seek/volume sliders, transport glyphs and the format
+     badges. Light-mode values are overridden in the contract block at the end. */
+  --slider-track-bg: rgba(255, 255, 255, 0.16);
+  --slider-fill-bg: rgba(255, 255, 255, 0.8);
+  --slider-fill-hover-bg: var(--accent, #ff5555);
+  --slider-thumb-bg: rgba(255, 255, 255, 0.8);
+  --slider-thumb-hover-bg: #ffffff;
+  --slider-thumb-shadow: 0 0 6px rgba(255, 255, 255, 0.35);
+  --slider-thumb-size: 4px;
+  --slider-thumb-hover-scale: 2.5;
+  --range-fill-bg: var(--accent, #ff5555);
+  --range-thumb-bg: #ffffff;
+  --range-thumb-border: none;
+  --range-thumb-ring: color-mix(
+    in srgb,
+    var(--accent, #ff5555) 22%,
+    transparent
+  );
+  --range-thumb-hover-ring: color-mix(
+    in srgb,
+    var(--accent, #ff5555) 26%,
+    transparent
+  );
+  --play-button-bg: #ffffff;
+  --play-button-fg: #000000;
+  --play-button-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --format-badge-bg: rgba(255, 255, 255, 0.06);
+  --format-badge-fg: rgba(255, 255, 255, 0.65);
+  --format-badge-border: rgba(255, 255, 255, 0.1);
+  --format-badge-accent-bg: color-mix(
+    in srgb,
+    var(--accent, #ff5555) 12%,
+    transparent
+  );
+  --format-badge-accent-fg: color-mix(
+    in srgb,
+    var(--accent, #ff5555) 90%,
+    transparent
+  );
+  --format-badge-accent-border: color-mix(
+    in srgb,
+    var(--accent, #ff5555) 25%,
+    transparent
+  );
   color-scheme: dark;
 }
 
@@ -299,7 +371,7 @@
     z-index: 10;
     font-size: 11px;
     line-height: 1;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--titlebar-fg-muted);
   }
 
   .titlebar-track-text {
@@ -309,22 +381,50 @@
     white-space: nowrap;
   }
 
-  .titlebar-button {
+  .titlebar-track-title {
+    color: var(--titlebar-fg);
+  }
+
+  .titlebar-track-sep {
+    color: var(--titlebar-fg-faint);
+  }
+
+  .titlebar-button,
+  .titlebar-nav-button {
     display: inline-flex;
     height: 26px;
     width: 30px;
     align-items: center;
     justify-content: center;
     border-radius: 7px;
-    color: rgba(255, 255, 255, 0.42);
+    color: var(--titlebar-button-fg);
     transition:
       background-color 160ms ease,
       color 160ms ease;
   }
 
-  .titlebar-button:hover {
-    background-color: rgba(255, 255, 255, 0.08);
-    color: #fff;
+  .titlebar-nav-button {
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+  }
+
+  .titlebar-button:hover,
+  .titlebar-nav-button:hover {
+    background-color: var(--titlebar-button-hover-bg);
+    color: var(--titlebar-button-hover-fg);
+  }
+
+  /* Shared source / delay badges in the karaoke header. */
+  .header-badge {
+    border-color: var(--ui-pill-border);
+    background-color: var(--ui-pill-bg);
+    color: var(--ui-pill-fg);
+  }
+
+  .header-badge:hover {
+    background-color: var(--ui-pill-hover-bg);
+    color: var(--ui-pill-hover-fg);
   }
 
   .no-scrollbar {
@@ -347,8 +447,8 @@
     line-height: 1.25 !important;
     letter-spacing: -0.03em;
     text-wrap: balance;
-    color: var(--lyrics-inactive);
-    opacity: 0.35;
+    color: var(--lyrics-inactive, var(--lyric-inactive-color));
+    opacity: var(--lyric-inactive-opacity, 0.35);
     transform: scale(1);
     transform-origin: center center;
     /* Only the three cheap, compositor-friendly properties animate. */
@@ -358,14 +458,29 @@
       transform 0.25s cubic-bezier(0.2, 0, 0, 1) !important;
   }
 
+  html[data-lucid-light="true"] .lyrics-line:not([data-active="true"]):hover {
+    color: var(--lyric-hover-color);
+    opacity: 1;
+  }
+
   .lyrics-line[data-active="true"] {
-    color: var(--lyrics-active);
+    color: var(--lyrics-active, var(--lyric-active-color));
     opacity: 1;
     transform: scale(1.02);
   }
 
   .karaoke-active {
-    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+    text-shadow: var(--lyric-text-shadow);
+  }
+
+  /* Unsynced lyrics have no per-line opacity, so they use their own token. */
+  .lyrics-unsynced-line {
+    color: var(--lyrics-inactive, var(--lyric-unsynced-color));
+    transition: color 0.2s ease;
+  }
+
+  .lyrics-unsynced-line:hover {
+    color: var(--lyric-unsynced-hover);
   }
 
   /*
@@ -397,7 +512,7 @@
     width: 15px;
     height: 15px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.25);
+    background: var(--lyric-dot-base);
     opacity: 0.32;
     transform: scale(0.78);
     animation: wavePulse 1.5s infinite ease-in-out;
@@ -435,19 +550,19 @@
   /* Final 3 seconds: stop the wave and count 3-2-1 with bright discs. */
   .lyrics-intermission[data-counting="true"] .dot {
     animation: none;
-    background: rgba(255, 255, 255, 0.25);
+    background: var(--lyric-dot-base);
     opacity: 0.18;
     transform: scale(0.78);
     box-shadow: none;
   }
 
   .lyrics-intermission[data-counting="true"] .dot[data-lit="true"] {
-    background: #ffffff;
+    background: var(--lyric-dot-active);
     opacity: 1;
     transform: scale(1.2);
     box-shadow:
-      0 0 18px rgba(255, 255, 255, 0.75),
-      0 0 34px rgba(255, 255, 255, 0.3);
+      0 0 18px color-mix(in srgb, var(--lyric-dot-active) 75%, transparent),
+      0 0 34px color-mix(in srgb, var(--lyric-dot-active) 30%, transparent);
   }
 
   .lyrics-intermission[data-counting="true"] .dot[data-current="true"] {
@@ -457,12 +572,12 @@
   @keyframes wavePulse {
     0%,
     100% {
-      background: rgba(255, 255, 255, 0.25);
+      background: var(--lyric-dot-base);
       opacity: 0.28;
       transform: scale(0.8);
     }
     50% {
-      background: rgba(255, 255, 255, 0.78);
+      background: var(--lyric-dot-peak);
       opacity: 0.95;
       transform: scale(1.08);
     }
@@ -520,8 +635,8 @@
     border-radius: 999px;
     background: linear-gradient(
       to right,
-      var(--accent, #ff5555) 0 var(--range-progress),
-      rgba(255, 255, 255, 0.14) var(--range-progress) 100%
+      var(--range-fill-bg) 0 var(--range-progress),
+      var(--slider-track-bg) var(--range-progress) 100%
     );
   }
 
@@ -531,11 +646,11 @@
     width: 14px;
     height: 14px;
     margin-top: -5px;
-    border: none;
+    border: var(--range-thumb-border, none);
     border-radius: 50%;
-    background: #ffffff;
+    background: var(--range-thumb-bg, #ffffff);
     box-shadow:
-      0 0 0 3px color-mix(in srgb, var(--accent, #ff5555) 22%, transparent),
+      0 0 0 3px var(--range-thumb-ring),
       0 1px 4px rgba(0, 0, 0, 0.45);
     transition: transform 0.16s ease, box-shadow 0.16s ease;
   }
@@ -544,30 +659,30 @@
   .range-input:focus-visible::-webkit-slider-thumb {
     transform: scale(1.15);
     box-shadow:
-      0 0 0 5px color-mix(in srgb, var(--accent, #ff5555) 26%, transparent),
+      0 0 0 5px var(--range-thumb-hover-ring),
       0 1px 5px rgba(0, 0, 0, 0.5);
   }
 
   .range-input::-moz-range-track {
     height: 4px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.14);
+    background: var(--slider-track-bg);
   }
 
   .range-input::-moz-range-progress {
     height: 4px;
     border-radius: 999px;
-    background: var(--accent, #ff5555);
+    background: var(--range-fill-bg);
   }
 
   .range-input::-moz-range-thumb {
     width: 14px;
     height: 14px;
-    border: none;
+    border: var(--range-thumb-border, none);
     border-radius: 50%;
-    background: #ffffff;
+    background: var(--range-thumb-bg, #ffffff);
     box-shadow:
-      0 0 0 3px color-mix(in srgb, var(--accent, #ff5555) 22%, transparent),
+      0 0 0 3px var(--range-thumb-ring),
       0 1px 4px rgba(0, 0, 0, 0.45);
     transition: transform 0.16s ease, box-shadow 0.16s ease;
   }
@@ -838,6 +953,54 @@ html .artist-card.lucid-glass-panel:hover {
 .lucid-progress-track {
   height: var(--lucid-player-slider-height) !important;
   border-radius: 2px !important;
+  background-color: var(--slider-track-bg);
+}
+
+.lucid-progress-fill {
+  background-color: var(--slider-fill-bg);
+  transition: background-color 0.2s ease;
+}
+
+.lucid-progress:hover .lucid-progress-fill,
+.lucid-progress:focus-visible .lucid-progress-fill {
+  background-color: var(--slider-fill-hover-bg);
+}
+
+.lucid-progress-thumb {
+  width: var(--slider-thumb-size);
+  height: var(--slider-thumb-size);
+  border-radius: 999px;
+  background-color: var(--slider-thumb-bg);
+  box-shadow: var(--slider-thumb-shadow);
+  transition:
+    transform 0.15s ease-out,
+    background-color 0.15s ease-out;
+}
+
+.lucid-progress:hover .lucid-progress-thumb,
+.lucid-progress:focus-visible .lucid-progress-thumb {
+  transform: scale(var(--slider-thumb-hover-scale));
+  background-color: var(--slider-thumb-hover-bg);
+}
+
+.lucid-play-button {
+  background-color: var(--play-button-bg);
+  color: var(--play-button-fg);
+  box-shadow: var(--play-button-shadow);
+}
+
+/* Shared technical audio badges (format, quality, bitrate). */
+.format-badge {
+  border-style: solid;
+  border-color: var(--format-badge-border);
+  background-color: var(--format-badge-bg);
+  color: var(--format-badge-fg);
+}
+
+.format-badge--accent {
+  border-color: var(--format-badge-accent-border);
+  background-color: var(--format-badge-accent-bg);
+  color: var(--format-badge-accent-fg);
 }
 
 html[data-lucid-layout="compact"] .lucid-app-content {
@@ -984,11 +1147,11 @@ body.is-resizing * {
   border: 1px solid transparent;
   border-radius: 999px;
   background-clip: padding-box;
-  background-color: rgba(255, 255, 255, 0.14);
+  background-color: var(--ui-scrollbar-thumb);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.28);
+  background-color: var(--ui-scrollbar-thumb-hover);
 }
 
 ::-webkit-scrollbar-corner {
@@ -1177,4 +1340,195 @@ body.is-resizing * {
 
 .queue-popover .queue-track-row.is-active {
   background: rgba(255, 255, 255, 0.07);
+}
+
+/*
+ * Light-mode contract. These declarations are deliberately unlayered and come
+ * last: the dark glass/toast rules above are unlayered too, so a layered
+ * override would lose regardless of specificity.
+ */
+html[data-lucid-light="true"] {
+  --lyric-active-color: #141418;
+  --lyric-inactive-color: #141418;
+  --lyric-inactive-opacity: 0.42;
+  --lyric-hover-color: rgba(20, 20, 24, 0.72);
+  --lyric-unsynced-color: rgba(20, 20, 24, 0.78);
+  --lyric-unsynced-hover: rgba(20, 20, 24, 0.92);
+  --lyric-text-shadow: none;
+  --lyric-highlight-ring: rgba(20, 20, 24, 0.08);
+  --lyric-dot-base: rgba(20, 20, 24, 0.22);
+  --lyric-dot-active: #141418;
+  --lyric-dot-peak: rgba(20, 20, 24, 0.55);
+  --titlebar-fg: rgba(20, 20, 24, 0.82);
+  --titlebar-fg-muted: rgba(20, 20, 24, 0.52);
+  --titlebar-fg-faint: rgba(20, 20, 24, 0.3);
+  --titlebar-button-fg: rgba(20, 20, 24, 0.55);
+  --titlebar-button-hover-fg: #141418;
+  --titlebar-button-hover-bg: rgba(20, 20, 24, 0.08);
+  --ui-pill-bg: rgba(0, 0, 0, 0.05);
+  --ui-pill-border: rgba(0, 0, 0, 0.08);
+  --ui-pill-fg: rgba(20, 20, 24, 0.62);
+  --ui-pill-hover-bg: rgba(0, 0, 0, 0.09);
+  --ui-pill-hover-fg: rgba(20, 20, 24, 0.9);
+  --ui-scrollbar-thumb: rgba(20, 20, 24, 0.16);
+  --ui-scrollbar-thumb-hover: rgba(20, 20, 24, 0.3);
+  --slider-track-bg: rgba(20, 20, 24, 0.14);
+  --slider-fill-bg: #141418;
+  --slider-fill-hover-bg: #141418;
+  --slider-thumb-bg: #141418;
+  --slider-thumb-hover-bg: #141418;
+  --slider-thumb-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.9), 0 1px 4px rgba(0, 0, 0, 0.35);
+  --slider-thumb-size: 7px;
+  --slider-thumb-hover-scale: 1.35;
+  --range-fill-bg: #141418;
+  --range-thumb-bg: #141418;
+  --range-thumb-border: 2px solid #ffffff;
+  --range-thumb-ring: rgba(20, 20, 24, 0.14);
+  --range-thumb-hover-ring: rgba(20, 20, 24, 0.24);
+  --play-button-bg: #141418;
+  --play-button-fg: #ffffff;
+  --play-button-shadow: 0 4px 16px rgba(20, 20, 24, 0.22);
+  --format-badge-bg: rgba(20, 20, 24, 0.07);
+  --format-badge-fg: rgba(20, 20, 24, 0.78);
+  --format-badge-border: rgba(20, 20, 24, 0.14);
+  --format-badge-accent-bg: rgba(20, 20, 24, 0.07);
+  --format-badge-accent-fg: rgba(20, 20, 24, 0.78);
+  --format-badge-accent-border: rgba(20, 20, 24, 0.14);
+}
+
+/* Restore contrast steps for the opacity variants the generic rule flattens. */
+html[data-lucid-light="true"] [class*="text-white/1"] {
+  color: rgba(16, 16, 24, 0.34) !important;
+}
+
+html[data-lucid-light="true"] [class*="text-white/2"],
+html[data-lucid-light="true"] [class*="text-white/3"] {
+  color: rgba(16, 16, 24, 0.46) !important;
+}
+
+html[data-lucid-light="true"] [class*="text-white/4"] {
+  color: rgba(16, 16, 24, 0.54) !important;
+}
+
+html[data-lucid-light="true"] [class*="text-white/5"],
+html[data-lucid-light="true"] [class*="text-white/6"] {
+  color: rgba(16, 16, 24, 0.64) !important;
+}
+
+html[data-lucid-light="true"] [class*="text-white/7"] {
+  color: rgba(16, 16, 24, 0.76) !important;
+}
+
+/* Frosted notifications: white glass with dark ink. */
+html[data-lucid-light="true"] .toast-item,
+html[data-lucid-light="true"] .toast-card,
+html[data-lucid-light="true"] .toast,
+html[data-lucid-light="true"] .notification-item {
+  background: rgba(255, 255, 255, 0.82) !important;
+  border-color: rgba(20, 20, 24, 0.1) !important;
+  box-shadow:
+    0 12px 36px rgba(28, 32, 48, 0.16),
+    inset 0 1px 1px rgba(255, 255, 255, 0.9) !important;
+  color: #141418 !important;
+}
+
+html[data-lucid-light="true"] .toast-dismiss {
+  color: #141418 !important;
+}
+
+html[data-lucid-light="true"] .toast-dismiss:hover {
+  background-color: rgba(20, 20, 24, 0.08) !important;
+}
+
+/* Menus, popovers, dialogs and the queue share the same light glass. */
+html[data-lucid-light="true"] .modal-content,
+html[data-lucid-light="true"] .popover-content,
+html[data-lucid-light="true"] .context-menu,
+html[data-lucid-light="true"] .dropdown-menu,
+html[data-lucid-light="true"] .queue-modal,
+html[data-lucid-light="true"] .queue-popover,
+html[data-lucid-light="true"] .queue-dialog,
+html[data-lucid-light="true"] .queue-floating-panel {
+  background: rgba(255, 255, 255, 0.84) !important;
+  border-color: rgba(20, 20, 24, 0.1) !important;
+  box-shadow:
+    0 16px 48px rgba(28, 32, 48, 0.18),
+    inset 0 1px 1px rgba(255, 255, 255, 0.9) !important;
+  color: #141418 !important;
+}
+
+html[data-lucid-light="true"] .queue-popover .queue-track-row:hover {
+  background: rgba(20, 20, 24, 0.06) !important;
+}
+
+html[data-lucid-light="true"] .queue-popover .queue-track-row.is-active {
+  background: rgba(20, 20, 24, 0.08) !important;
+}
+
+html[data-lucid-light="true"] .settings-modal {
+  background: rgba(250, 250, 253, 0.94) !important;
+  border-color: rgba(20, 20, 24, 0.12) !important;
+  box-shadow: 0 16px 48px rgba(28, 32, 48, 0.2) !important;
+  color: rgba(16, 16, 24, 0.9) !important;
+}
+
+html[data-lucid-light="true"] .lucid-settings-modal {
+  background-color: rgba(250, 250, 253, 0.94) !important;
+}
+
+/* Pastel status colors need deeper ink on the white glass. */
+html[data-lucid-light="true"] [class*="text-rose-200"],
+html[data-lucid-light="true"] [class*="text-rose-300"] {
+  color: #be123c !important;
+}
+
+html[data-lucid-light="true"] [class*="text-red-200"],
+html[data-lucid-light="true"] [class*="text-red-300"] {
+  color: #dc2626 !important;
+}
+
+html[data-lucid-light="true"] [class*="text-emerald-300"] {
+  color: #047857 !important;
+}
+
+html[data-lucid-light="true"] [class*="text-amber-200"] {
+  color: #b45309 !important;
+}
+
+/* Player bar controls need explicit contrast on the light glass. Active
+   accent-coloured controls (shuffle/repeat/liked) keep their accent ink. */
+html[data-lucid-light="true"] .lucid-player-time {
+  color: rgba(20, 20, 24, 0.75) !important;
+}
+
+html[data-lucid-light="true"] .lucid-transport-button:not([class*="text-accent"]) {
+  color: rgba(20, 20, 24, 0.75) !important;
+  opacity: 1;
+}
+
+html[data-lucid-light="true"]
+  .lucid-transport-button:hover:not([class*="text-accent"]) {
+  color: #141418 !important;
+  background-color: rgba(20, 20, 24, 0.06) !important;
+}
+
+html[data-lucid-light="true"] .lucid-player-icon:not([class*="text-accent"]) {
+  color: rgba(20, 20, 24, 0.75) !important;
+}
+
+html[data-lucid-light="true"]
+  .lucid-player-icon:hover:not([class*="text-accent"]) {
+  color: #141418 !important;
+}
+
+/* Small format labels in search / Popular rows only become badges in light
+   mode; the dark status column stays borderless. */
+html[data-lucid-light="true"] .format-tag {
+  border: 1px solid rgba(20, 20, 24, 0.14) !important;
+  border-radius: 4px;
+  background-color: rgba(20, 20, 24, 0.07) !important;
+  padding: 1px 4px;
+  color: rgba(20, 20, 24, 0.78) !important;
+  line-height: 1.1;
 }

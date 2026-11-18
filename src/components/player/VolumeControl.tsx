@@ -19,6 +19,7 @@ export function VolumeControl() {
         label={muted ? "Unmute" : "Mute"}
         size="sm"
         onClick={toggleMute}
+        className="lucid-player-icon"
       >
         <Icon className="h-4 w-4" />
       </IconButton>

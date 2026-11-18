@@ -41,7 +41,7 @@ export function TrackStatusAction({
         </span>
         <span>In library</span>
         {format && (
-          <span className="text-[8px] font-bold uppercase tracking-[0.1em] text-white/25">
+          <span className="format-tag text-[8px] font-bold uppercase tracking-[0.1em] text-white/25">
             {format}
           </span>
         )}
@@ -78,7 +78,7 @@ export function TrackStatusAction({
       )}
       <span>{label}</span>
       {!pending && format && (
-        <span className="text-[8px] font-bold uppercase tracking-[0.1em] text-white/20 transition-colors group-hover/status:text-white/40">
+        <span className="format-tag text-[8px] font-bold uppercase tracking-[0.1em] text-white/20 transition-colors group-hover/status:text-white/40">
           {format}
         </span>
       )}

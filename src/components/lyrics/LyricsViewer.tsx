@@ -17,7 +17,7 @@ import {
   type LyricLineRow,
 } from "@/lib/intermissions";
 import { usePlayerStore } from "@/store/playerStore";
-import { useSettingsStore } from "@/store/settingsStore";
+import { DEFAULT_SETTINGS, useSettingsStore } from "@/store/settingsStore";
 import { useTrackDelayStore } from "@/store/trackDelayStore";
 import { useSmoothPosition } from "@/hooks/useSmoothPosition";
 import { LyricsIntermissionDots } from "@/components/lyrics/LyricsIntermissionDots";
@@ -303,9 +303,16 @@ export function LyricsViewer({ mode }: LyricsViewerProps) {
   }, [centerActiveRow]);
 
   const textAlign = align === "center" ? "center" : align === "right" ? "right" : "left";
+  // White is the built-in default. Only an explicit user choice should beat
+  // the light/dark tokens; otherwise lyrics would stay white in light mode.
+  const defaultLyricColor = DEFAULT_SETTINGS.activeTextColor;
   const themeVars = {
-    "--lyrics-active": activeTextColor,
-    "--lyrics-inactive": inactiveTextColor,
+    ...(activeTextColor.trim().toLowerCase() === defaultLyricColor
+      ? {}
+      : { "--lyrics-active": activeTextColor }),
+    ...(inactiveTextColor.trim().toLowerCase() === defaultLyricColor
+      ? {}
+      : { "--lyrics-inactive": inactiveTextColor }),
   } as CSSProperties;
 
   if (mode === "unsynced") {
@@ -333,11 +340,10 @@ export function LyricsViewer({ mode }: LyricsViewerProps) {
                 delay: animated ? Math.min(index * 0.02, 0.4) : 0,
                 ease: EASE,
               }}
-              className="py-2 font-lyrics font-medium leading-relaxed transition-colors hover:text-white/80"
+              className="lyrics-unsynced-line py-2 font-lyrics font-medium leading-relaxed"
               style={{
                 fontSize: `${fontSize}px`,
                 textAlign,
-                color: "var(--lyrics-inactive)",
               }}
             >
               {line.text}

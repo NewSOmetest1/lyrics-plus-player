@@ -26,10 +26,8 @@ function formatBadge(format: string) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-[5px] border px-1.5 py-0.5 text-[8.5px] font-bold tracking-[0.08em]",
-        lossless
-          ? "border-accent/25 bg-accent/10 text-accent/90"
-          : "border-white/10 bg-white/[0.04] text-white/40",
+        "format-badge inline-flex items-center rounded-[5px] border px-1.5 py-0.5 text-[8.5px] font-bold tracking-[0.08em]",
+        lossless && "format-badge--accent",
       )}
     >
       {format}

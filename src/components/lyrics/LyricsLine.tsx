@@ -29,7 +29,7 @@ function highlightText(text: string, query?: string): ReactNode {
     index % 2 === 1 ? (
       <mark
         key={`${part}-${index}`}
-        className="rounded-[3px] bg-accent/30 text-inherit shadow-[0_0_0_1px_rgba(255,255,255,0.04)]"
+        className="rounded-[3px] bg-accent/30 text-inherit shadow-[0_0_0_1px_var(--lyric-highlight-ring)]"
       >
         {part}
       </mark>

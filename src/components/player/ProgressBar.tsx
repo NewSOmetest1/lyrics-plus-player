@@ -31,7 +31,7 @@ export function ProgressBar({
 
   return (
     <div className="flex w-full items-center gap-2.5">
-      <span className="w-10 shrink-0 text-right font-mono text-[11px] leading-none tabular-nums text-white/60">
+      <span className="lucid-player-time w-10 shrink-0 text-right font-mono text-[11px] leading-none tabular-nums text-white/60">
         {formatTime(positionMs)}
       </span>
 
@@ -44,7 +44,7 @@ export function ProgressBar({
         aria-valuenow={Math.round(positionMs)}
         tabIndex={0}
         className={cn(
-          "group/progress relative flex-1 cursor-pointer touch-none outline-none focus-visible:ring-1 focus-visible:ring-accent/60",
+          "lucid-progress group/progress relative flex-1 cursor-pointer touch-none outline-none focus-visible:ring-1 focus-visible:ring-accent/60",
           compact ? "h-2" : "h-4",
         )}
         onPointerDown={(event) => {
@@ -74,9 +74,9 @@ export function ProgressBar({
           if (!dragging) setHover(null);
         }}
       >
-        <div className="lucid-progress-track absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 overflow-hidden rounded-[2px] bg-white/[0.12]">
+        <div className="lucid-progress-track absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 overflow-hidden rounded-[2px]">
           <div
-            className="h-full rounded-[2px] bg-white/80 transition-[background-color] duration-200 group-hover/progress:bg-accent"
+            className="lucid-progress-fill h-full rounded-[2px]"
             style={{ width: `${percent}%` }}
           />
         </div>
@@ -85,7 +85,7 @@ export function ProgressBar({
           className="pointer-events-none absolute top-1/2 -translate-x-1/2 -translate-y-1/2"
           style={{ left: `${percent}%` }}
         >
-          <div className="h-1 w-1 rounded-full bg-white/80 shadow-[0_0_6px_rgba(255,255,255,.35)] transition-[transform,background-color] duration-150 ease-out group-hover/progress:scale-[2.5] group-hover/progress:bg-white group-focus-visible/progress:scale-[2.5]" />
+          <div className="lucid-progress-thumb" />
         </div>
 
         {hover && (
@@ -99,7 +99,7 @@ export function ProgressBar({
         )}
       </div>
 
-      <span className="w-10 shrink-0 font-mono text-[11px] leading-none tabular-nums text-white/60">
+      <span className="lucid-player-time w-10 shrink-0 font-mono text-[11px] leading-none tabular-nums text-white/60">
         {formatTime(durationMs)}
       </span>
     </div>

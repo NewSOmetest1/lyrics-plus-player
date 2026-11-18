@@ -120,21 +120,14 @@ export function NowPlayingPanel() {
 
         {track && (
           <div className="mt-3 flex min-w-0 flex-wrap items-center gap-1.5">
-            <span
-              className={cn(
-                "max-w-full truncate rounded-md border px-2 py-0.5 text-[9px] font-bold tracking-[0.1em]",
-                track.isStream
-                  ? "border-accent/35 bg-accent/[0.16] text-accent"
-                  : "border-accent/25 bg-accent/[0.12] text-accent",
-              )}
-            >
+            <span className="format-badge format-badge--accent max-w-full truncate rounded-md border px-2 py-0.5 text-[9px] font-bold tracking-[0.1em]">
               {streamFormatLabel(track)}
             </span>
-            <span className="max-w-full truncate rounded-md border border-white/[0.08] bg-white/[0.035] px-2 py-0.5 text-[9.5px] font-medium text-white/40">
+            <span className="format-badge max-w-full truncate rounded-md border px-2 py-0.5 text-[9.5px] font-medium">
               {track.isStream ? streamSourceLabel(track) : formatQuality(track)}
             </span>
             {track.bitrate && (
-              <span className="max-w-full truncate rounded-md border border-white/[0.08] bg-white/[0.035] px-2 py-0.5 text-[9.5px] font-medium text-white/40">
+              <span className="format-badge max-w-full truncate rounded-md border px-2 py-0.5 text-[9.5px] font-medium">
                 {track.bitrate.toLocaleString("en-US")} kbps
               </span>
             )}
