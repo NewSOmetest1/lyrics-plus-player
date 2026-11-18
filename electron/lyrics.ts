@@ -10,7 +10,7 @@ import type { CachedLyrics, LyricsPayload, TrackRecord } from "./types";
 
 const USER_AGENT =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
-const LRC_PATTERN = /\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]/;
+const LRC_PATTERN = /\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]/;
 
 type ProviderId = "lrclib" | "spotify" | "musixmatch" | "embedded";
 
@@ -160,7 +160,10 @@ export function cleanTrackTitle(title: string, artist = ""): CleanTrack {
 export function normalizeForMatch(value: string): string {
   return cleanTrackTitle(value)
     .title.toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]+/g, "")
+    // Keep letters and digits from every script (Cyrillic titles included).
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 }
 
@@ -212,23 +215,30 @@ async function lrclibGet(params: Record<string, string>): Promise<LrclibRecord |
   return (await response.json()) as LrclibRecord;
 }
 
-function lrclibRecordToResult(
-  record: LrclibRecord | null,
-): { content: string; instrumental: boolean } | null {
-  if (!record) return null;
-  if (record.instrumental) return { content: "", instrumental: true };
-  const synced = record.syncedLyrics?.trim();
-  if (synced) return { content: synced, instrumental: false };
-  const plain = record.plainLyrics?.trim();
-  if (plain) return { content: plain, instrumental: false };
-  return null;
-}
-
 async function fetchLrclib(
   track: TrackRecord,
 ): Promise<{ content: string; instrumental: boolean } | null> {
   const cleaned = cleanTrackTitle(track.title, track.artist);
   const duration = trackDurationSeconds(track);
+
+  // A plain result from /api/get is a fallback, not the final answer. LRCLIB
+  // often has a synced record under the same names, so the search below must
+  // still run. This matters for tracks whose exact record only has plainLyrics.
+  let fallbackPlain: { content: string; instrumental: boolean } | null = null;
+
+  const acceptRecord = (
+    record: LrclibRecord | null,
+  ): { content: string; instrumental: boolean } | null => {
+    if (!record) return null;
+    if (record.instrumental) return { content: "", instrumental: true };
+    const synced = record.syncedLyrics?.trim();
+    if (synced) return { content: synced, instrumental: false };
+    const plain = record.plainLyrics?.trim();
+    if (plain && !fallbackPlain) {
+      fallbackPlain = { content: plain, instrumental: false };
+    }
+    return null;
+  };
 
   try {
     // Step 1: exact metadata match, including duration.
@@ -238,7 +248,7 @@ async function fetchLrclib(
         track_name: track.title,
         duration: String(duration),
       });
-      const result = lrclibRecordToResult(exact);
+      const result = acceptRecord(exact);
       if (result) return result;
     }
 
@@ -247,10 +257,11 @@ async function fetchLrclib(
       artist_name: cleaned.artist || track.artist,
       track_name: cleaned.title,
     });
-    const looseResult = lrclibRecordToResult(loose);
+    const looseResult = acceptRecord(loose);
     if (looseResult) return looseResult;
 
-    // Step 3: full-text search, pick closest duration with synced lyrics.
+    // Step 3: full-text search. Prefer a synced record within ±8 seconds of
+    // the track length; keep the plain result only when nothing synced exists.
     const query = new URLSearchParams({
       q: [cleaned.artist, cleaned.title].filter(Boolean).join(" "),
     });
@@ -258,39 +269,54 @@ async function fetchLrclib(
       `https://lrclib.net/api/search?${query.toString()}`,
       { headers: LRCLIB_HEADERS, signal: AbortSignal.timeout(LRCLIB_TIMEOUT) },
     );
-    if (!searchResponse.ok) return null;
+    if (!searchResponse.ok) return fallbackPlain;
     const records = (await searchResponse.json()) as LrclibRecord[];
-    if (!Array.isArray(records) || records.length === 0) return null;
+    if (!Array.isArray(records) || records.length === 0) return fallbackPlain;
 
-    const withLyrics = records.filter(
-      (record) => record.syncedLyrics?.trim() || record.plainLyrics?.trim(),
-    );
-    const candidate =
+    const syncedRecords = records.filter((record) => record.syncedLyrics?.trim());
+    const closestSynced =
       duration === null
-        ? withLyrics.find((record) => record.syncedLyrics?.trim()) ?? withLyrics[0]
-        : [...withLyrics]
+        ? syncedRecords[0]
+        : syncedRecords
             .filter((record) =>
               Number.isFinite(record.duration)
-                ? Math.abs((record.duration ?? 0) - duration) <= 5
+                ? Math.abs((record.duration ?? 0) - duration) <= 8
                 : false,
             )
             .sort(
               (a, b) =>
-                Math.abs((a.duration ?? 0) - duration) - Math.abs((b.duration ?? 0) - duration),
-            )
-            .find((record) => record.syncedLyrics?.trim()) ??
-          withLyrics
-            .filter((record) => record.syncedLyrics?.trim())
-            .sort(
-              (a, b) =>
-                Math.abs((a.duration ?? 0) - duration) - Math.abs((b.duration ?? 0) - duration),
-            )[0] ??
-          withLyrics[0];
+                Math.abs((a.duration ?? 0) - duration) -
+                Math.abs((b.duration ?? 0) - duration),
+            )[0];
+    const synced = closestSynced?.syncedLyrics?.trim();
+    if (synced) return { content: synced, instrumental: false };
 
-    return lrclibRecordToResult(candidate ?? null);
+    if (!fallbackPlain) {
+      const plainRecords = records.filter(
+        (record) => !record.instrumental && record.plainLyrics?.trim(),
+      );
+      const closestPlain =
+        duration === null
+          ? plainRecords[0]
+          : plainRecords
+              .filter((record) =>
+                Number.isFinite(record.duration)
+                  ? Math.abs((record.duration ?? 0) - duration) <= 8
+                  : false,
+              )
+              .sort(
+                (a, b) =>
+                  Math.abs((a.duration ?? 0) - duration) -
+                  Math.abs((b.duration ?? 0) - duration),
+              )[0];
+      const plain = closestPlain?.plainLyrics?.trim();
+      if (plain) fallbackPlain = { content: plain, instrumental: false };
+    }
+
+    return fallbackPlain;
   } catch (error) {
     console.warn("[lyrics] LRCLIB failed:", error);
-    return null;
+    return fallbackPlain;
   }
 }
 
@@ -767,7 +793,11 @@ interface MusixmatchMacroCall {
         has_richsync?: number;
       };
       subtitle?: { subtitle_body?: string };
-      subtitle_list?: Array<{ subtitle?: { subtitle_body?: string } }>;
+      subtitle_list?: Array<{
+        subtitle?: { subtitle_body?: string };
+        // App-mobile returns the body directly on the list item.
+        subtitle_body?: string;
+      }>;
       richsync?: { richsync_body?: string };
     };
   };
@@ -855,7 +885,12 @@ async function musixmatchSubtitle(
         body?: {
           macro_calls?: Record<string, MusixmatchMacroCall>;
           macro_result?: {
-            subtitles?: { subtitle_list?: Array<{ subtitle?: { subtitle_body?: string } }> };
+            subtitles?: {
+              subtitle_list?: Array<{
+                subtitle?: { subtitle_body?: string };
+                subtitle_body?: string;
+              }>;
+            };
           };
         };
       };
@@ -871,8 +906,10 @@ async function musixmatchSubtitle(
     const list =
       subtitlesCall?.subtitle_list ??
       payload.message?.body?.macro_result?.subtitles?.subtitle_list;
+    const firstSubtitle = list?.[0];
     const subtitleBody =
-      list?.[0]?.subtitle?.subtitle_body?.trim() ||
+      firstSubtitle?.subtitle?.subtitle_body?.trim() ||
+      firstSubtitle?.subtitle_body?.trim() ||
       subtitlesCall?.subtitle?.subtitle_body?.trim() ||
       "";
     const richBody =

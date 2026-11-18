@@ -1,7 +1,7 @@
 import type { LyricLine, LyricWord } from "@/types";
 
-const TIME_TAG = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
-const WORD_TAG = /<(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?>/g;
+const TIME_TAG = /\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
+const WORD_TAG = /<(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?>/g;
 const OFFSET_TAG = /\[offset:\s*([+-]?\d+)\s*\]/i;
 const METADATA_TAG = /^\[(ar|ti|al|by|offset|length|re|ve|au|tool):/i;
 const SECTION_TAG =
