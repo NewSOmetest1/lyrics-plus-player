@@ -47,7 +47,8 @@ Screenshots use the built-in demo library from the browser preview.
   host because Discord cannot read local files; no bot token or client secret is
   required.
 - **Lucid UI** — frosted-glass surfaces, cover-colored ambient glow, optional
-  noise overlay, frameless window with custom controls and crossfade.
+  noise overlay, frameless window with custom controls and crossfade. Dark and
+  light palettes are both tuned for readable lyrics, sliders and format badges.
 - **Full settings panel** — lyrics timing, font size, alignment, transparency,
   compact lyric window, palette colors, ambient/noise toggles, provider order,
   music folders and downloader paths.
@@ -147,9 +148,10 @@ working.
 
 ## Settings
 
-Settings are stored in `library.json` in Electron's user-data directory
-(`~/.config/lyrics-plus-player/library.json` on Linux) and applied instantly.
-Listening history lives in `stats.json` next to it.
+Settings are stored in `settings.json` in Electron's user-data directory
+(`~/.config/lyrics-plus-player/settings.json` on Linux) and applied instantly.
+`library.json` holds the library index and keeps a fallback copy of the same
+values. Listening history lives in `stats.json` next to them.
 
 ### Lyrics & Display
 
@@ -162,6 +164,14 @@ Listening history lives in `stats.json` next to it.
   fade-out blur.
 - **Visuals** — colorful ambient background, noise overlay, ambient intensity
   and custom active/inactive/accent colors.
+
+### Appearance
+
+Open **Lucid appearance** from Settings to switch between the dark and light
+palettes, pick fonts, radius, borders, glass blur and ambient intensity. Dark is
+the default. Both palettes retune the player bar, seek and volume sliders,
+transport icons, time labels and format badges so they stay readable against
+their surfaces.
 
 ### Providers
 
@@ -269,6 +279,8 @@ to `$XDG_CONFIG_HOME/lyrics-plus-player/covers` and served through `media://`.
   `--ozone-platform=wayland` when `WAYLAND_DISPLAY` is set.
 - **Sandbox** — `contextIsolation: true`, `nodeIntegration: false`,
   `sandbox: true`; the preload is bundled as CommonJS.
+- **Themes** — `src/index.css` holds the dark palette and the
+  `html[data-lucid-light="true"]` overrides used by **Lucid appearance**.
 - **Listening history** — stored in `stats.json` next to `library.json`. Daily
   buckets power the heatmap and memories; legacy all-time stats are folded into
   the day of their last play the first time the updated app reads them.
