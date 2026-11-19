@@ -381,6 +381,38 @@ export default function App() {
     writeStored(RIGHT_OPEN_KEY, isRightOpen ? "1" : "0");
   }, [isRightOpen]);
 
+  useEffect(() => {
+    // Super/workspace switches put Chromium into keyboard modality while the
+    // last clicked control still owns focus, so its focus-visible ring stays
+    // on screen until the next click. Drop focus from non-text controls when
+    // the window goes away, comes back, or the OS key is pressed; inputs keep
+    // focus so typing can resume.
+    const clearPointerFocus = () => {
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement)) return;
+      if (active.closest("input, textarea, select, [contenteditable='true']")) {
+        return;
+      }
+      active.blur();
+    };
+    const onVisibilityChange = () => {
+      if (document.hidden) clearPointerFocus();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Meta" || event.key === "OS") clearPointerFocus();
+    };
+    window.addEventListener("blur", clearPointerFocus);
+    window.addEventListener("focus", clearPointerFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      window.removeEventListener("blur", clearPointerFocus);
+      window.removeEventListener("focus", clearPointerFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, []);
+
   const handleSidebarResize = (next: number) => {
     if (next <= SIDEBAR_LIMITS.snap) {
       setIsLeftCollapsed(true);
