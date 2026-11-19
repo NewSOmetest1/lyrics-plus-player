@@ -94,7 +94,7 @@ export const LyricsLine = memo(
           onClick={() => onSeek(line.time)}
           aria-current={active ? "true" : undefined}
           className={cn(
-            "group relative block w-full outline-none focus-visible:ring-1 focus-visible:ring-accent/50",
+            "group relative block w-full outline-none",
             centered ? "text-center" : right ? "text-right" : "text-left",
           )}
           animate={{
