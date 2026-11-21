@@ -174,70 +174,67 @@ export function PlayerBar({
           </div>
 
           <div className="min-w-0 max-w-[190px] xl:max-w-[260px]">
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.div
-                key={track?.id ?? "empty"}
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -5 }}
-                transition={{ duration: 0.22, ease: EASE }}
-                className="min-w-0"
-              >
-                <div className="flex min-w-0 items-center gap-1.5">
-                  {track ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void openLocalTrackAlbum(track, () => {
-                          void usePlayerStore.getState().playTrack(track);
-                        });
-                      }}
-                      title={track.title}
-                      className={cn(
-                        "min-w-0 truncate text-left font-semibold text-white/90 transition hover:text-white hover:underline hover:decoration-white/20 hover:underline-offset-2",
-                        compactPlayer ? "text-[12px]" : "text-[12.5px]",
-                      )}
-                    >
-                      {track.title}
-                    </button>
-                  ) : (
-                    <p
-                      className={cn(
-                        "min-w-0 truncate font-semibold text-white/90",
-                        compactPlayer ? "text-[12px]" : "text-[12.5px]",
-                      )}
-                    >
-                      Nothing playing
-                    </p>
-                  )}
-                  {track && (
-                    <EqualizerBars
-                      playing={isPlaying}
-                      bars={3}
-                      className="eq-bars-track-title shrink-0"
-                    />
-                  )}
-                </div>
+            <motion.div
+              key={track?.id ?? "empty"}
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.22, ease: EASE }}
+              className="min-w-0"
+            >
+              <div className="flex min-w-0 items-center gap-1.5">
                 {track ? (
-                  <ArtistLinks
-                    artistString={track.artist}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void openLocalTrackAlbum(track, () => {
+                        void usePlayerStore.getState().playTrack(track);
+                      });
+                    }}
+                    title={track.title}
                     className={cn(
-                      "block truncate text-white/35",
-                      compactPlayer ? "text-[10px]" : "mt-0.5 text-[10.5px]",
+                      "min-w-0 truncate text-left font-semibold text-white/90 transition hover:text-white hover:underline hover:decoration-white/20 hover:underline-offset-2",
+                      compactPlayer ? "text-[12px]" : "text-[12.5px]",
                     )}
-                  />
+                  >
+                    {track.title}
+                  </button>
                 ) : (
                   <p
                     className={cn(
-                      "truncate text-white/35",
-                      compactPlayer ? "text-[10px]" : "mt-0.5 text-[10.5px]",
+                      "min-w-0 truncate font-semibold text-white/90",
+                      compactPlayer ? "text-[12px]" : "text-[12.5px]",
                     )}
                   >
-                    Pick a track to begin
+                    Nothing playing
                   </p>
                 )}
-              </motion.div>
-            </AnimatePresence>
+                {track && (
+                  <EqualizerBars
+                    playing={isPlaying}
+                    bars={3}
+                    className="eq-bars-track-title shrink-0"
+                  />
+                )}
+              </div>
+              {track ? (
+                <ArtistLinks
+                  artistString={track.artist}
+                  className={cn(
+                    "block truncate text-white/35",
+                    compactPlayer ? "text-[10px]" : "mt-0.5 text-[10.5px]",
+                  )}
+                />
+              ) : (
+                <p
+                  className={cn(
+                    "truncate text-white/35",
+                    compactPlayer ? "text-[10px]" : "mt-0.5 text-[10.5px]",
+                  )}
+                >
+                  Pick a track to begin
+                </p>
+              )}
+            </motion.div>
 
             {track && !compactPlayer && (
               <div className="mt-1 flex items-center gap-1.5">

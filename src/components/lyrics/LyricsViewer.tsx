@@ -313,13 +313,17 @@ export function LyricsViewer({ mode }: LyricsViewerProps) {
     ...(inactiveTextColor.trim().toLowerCase() === defaultLyricColor
       ? {}
       : { "--lyrics-inactive": inactiveTextColor }),
+    // The user setting is the upper bound. Narrow panels scale down from a
+    // 735 px reference width, but never below 55% of the chosen size.
+    "--lyrics-size-max": `${fontSize}px`,
+    "--lyrics-size-scale": String(fontSize / 36),
   } as CSSProperties;
 
   if (mode === "unsynced") {
     return (
       <div
         ref={containerRef}
-        className="h-full overflow-y-auto px-8 sm:px-12"
+        className="lyrics-size-context h-full overflow-y-auto px-8 sm:px-12"
         style={{
           ...themeVars,
           opacity,
@@ -341,10 +345,7 @@ export function LyricsViewer({ mode }: LyricsViewerProps) {
                 ease: EASE,
               }}
               className="lyrics-unsynced-line py-2 font-lyrics font-medium leading-relaxed"
-              style={{
-                fontSize: `${fontSize}px`,
-                textAlign,
-              }}
+              style={{ textAlign }}
             >
               {line.text}
             </motion.p>
@@ -363,7 +364,7 @@ export function LyricsViewer({ mode }: LyricsViewerProps) {
     <div className="relative h-full">
       <div
         ref={containerRef}
-        className="lyrics-scroll relative h-full overflow-y-auto overflow-x-hidden"
+        className="lyrics-scroll lyrics-size-context relative h-full overflow-y-auto overflow-x-hidden"
         style={{
           ...themeVars,
           opacity,
@@ -397,19 +398,25 @@ export function LyricsViewer({ mode }: LyricsViewerProps) {
             const { line, lineIndex } = row;
             const lineActive =
               lineIndex === activeIndex && !activeIntermission;
+            // During an intermission the previous vocal is finished even
+            // though it is no longer the "active" row.
+            const lineSung =
+              lineIndex < activeIndex ||
+              (activeIntermission !== null && lineIndex <= activeIndex);
             return (
               <LyricsLine
                 key={row.key}
                 line={line}
                 index={lineIndex}
                 active={lineActive}
+                sung={lineSung}
+                isPlaying={isPlaying}
                 distance={activeIndex >= 0 ? Math.abs(lineIndex - activeIndex) : 0}
                 positionMs={lineActive ? displayPosition : 0}
                 mode={mode}
                 onSeek={seek}
                 innerRef={setLineRef}
                 align={align}
-                fontSize={fontSize}
                 animated={animated}
                 fadeBlur={fadeBlur}
                 searchQuery={searchOpen ? query : undefined}

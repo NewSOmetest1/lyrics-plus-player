@@ -320,19 +320,72 @@ async function fetchLrclib(
   }
 }
 
-function spotifyToLrc(
-  lines: Array<{ startTimeMs?: string | number; words?: string }>,
-): string | null {
+interface SpotifySyllable {
+  numChars?: string | number;
+  /** Older payloads use this alias instead of numChars. */
+  charsCount?: string | number;
+  startTimeMs?: string | number;
+  endTimeMs?: string | number;
+}
+
+interface SpotifyColorLine {
+  startTimeMs?: string | number;
+  words?: string;
+  syllables?: SpotifySyllable[];
+}
+
+/**
+ * Preserve Spotify's syllable timings when the track has them. Each syllable
+ * only carries `numChars`, so it is sliced out of the line text and written as
+ * enhanced-LRC word tags. The renderer then animates real sung units instead
+ * of a character-weighted estimate.
+ */
+function spotifySyllablesToLrc(line: SpotifyColorLine): string | null {
+  const text = line.words ?? "";
+  if (!text.trim()) return null;
+
+  const syllables = line.syllables ?? [];
+  if (syllables.length < 2) return null;
+
+  // Spotify counts Unicode code points, not UTF-16 units; Array.from keeps
+  // emoji and other astral characters in one piece.
+  const glyphs = Array.from(text);
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const syllable of syllables) {
+    const count = Number(syllable.numChars ?? syllable.charsCount ?? 0);
+    const startMs = Number(syllable.startTimeMs ?? Number.NaN);
+    if (!Number.isInteger(count) || count <= 0 || !Number.isFinite(startMs)) {
+      return null;
+    }
+    if (cursor + count > glyphs.length) return null;
+    const chunk = glyphs.slice(cursor, cursor + count).join("");
+    if (chunk.length > 0) {
+      parts.push(`<${formatLrcTime(startMs / 1000)}>${chunk}`);
+    }
+    cursor += count;
+  }
+
+  // A partial syllable map would shift every following unit, so only trust a
+  // map that covers the whole line.
+  if (cursor !== glyphs.length) return null;
+
+  const lineMs = Number(line.startTimeMs ?? 0);
+  const safe = Number.isFinite(lineMs) ? Math.max(0, lineMs) : 0;
+  return `[${formatLrcTime(safe / 1000)}]${parts.join("")}`;
+}
+
+function spotifyToLrc(lines: SpotifyColorLine[]): string | null {
   const converted = lines
     .map((line) => {
-      const ms = Number(line.startTimeMs ?? 0);
+      const syllableLrc = spotifySyllablesToLrc(line);
+      if (syllableLrc) return syllableLrc;
+
       const text = (line.words ?? "").trim();
       if (!text) return null;
+      const ms = Number(line.startTimeMs ?? 0);
       const safe = Number.isFinite(ms) ? Math.max(0, ms) : 0;
-      const minutes = Math.floor(safe / 60_000);
-      const seconds = Math.floor((safe % 60_000) / 1000);
-      const centis = Math.floor((safe % 1000) / 10);
-      return `[${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(centis).padStart(2, "0")}] ${text}`;
+      return `[${formatLrcTime(safe / 1000)}] ${text}`;
     })
     .filter((line): line is string => Boolean(line));
   return converted.length > 0 ? converted.join("\n") : null;
@@ -682,7 +735,7 @@ async function fetchSpotify(
     const payload = (await lyricsResponse.json()) as {
       lyrics?: {
         syncType?: string;
-        lines?: Array<{ startTimeMs?: string | number; words?: string }>;
+        lines?: SpotifyColorLine[];
       };
     };
     const lines = payload.lyrics?.lines ?? [];

@@ -442,6 +442,25 @@
     overflow-anchor: none;
   }
 
+  .lyrics-size-context {
+    container-type: inline-size;
+  }
+
+  /*
+   * The size setting is the desktop ceiling. Below ~735 px the lyrics scale
+   * with the panel, but never below 60% of the chosen size. cqw is resolved
+   * against the nearest .lyrics-size-context wrapper.
+   */
+  .lyrics-line,
+  .lyrics-unsynced-line {
+    font-size: var(--lyrics-size-max, 36px);
+    font-size: clamp(
+      calc(var(--lyrics-size-max, 36px) * 0.6),
+      calc(4.9cqw * var(--lyrics-size-scale, 1)),
+      var(--lyrics-size-max, 36px)
+    );
+  }
+
   .lyrics-line {
     font-weight: 800 !important;
     line-height: 1.25 !important;
@@ -453,9 +472,9 @@
     transform-origin: center center;
     /* Only the three cheap, compositor-friendly properties animate. */
     transition:
-      opacity 0.25s ease,
-      color 0.25s ease,
-      transform 0.25s cubic-bezier(0.2, 0, 0, 1) !important;
+      opacity 0.25s cubic-bezier(0.61, 1, 0.88, 1),
+      color 0.1s ease-in-out,
+      transform 0.1s cubic-bezier(0.37, 0, 0.63, 1) !important;
   }
 
   html[data-lucid-light="true"] .lyrics-line:not([data-active="true"]):hover {
@@ -466,11 +485,121 @@
   .lyrics-line[data-active="true"] {
     color: var(--lyrics-active, var(--lyric-active-color));
     opacity: 1;
-    transform: scale(1.02);
+    transform: scale(1.05);
+    /*
+     * Light up immediately. Fading in from 0.35 while the gradient switches
+     * to its dimmer unsung fill made the new line dip darker for a moment,
+     * which read as the line disappearing at every switch. The outgoing line
+     * still uses the base rule and fades out over 0.25 s.
+     */
+    transition:
+      opacity 0s linear,
+      color 0.1s ease-in-out,
+      transform 0.1s cubic-bezier(0.37, 0, 0.63, 1) !important;
+  }
+
+  /*
+   * Karaoke already animates every syllable/letter with springs. Scaling the
+   * whole line here would make the text visibly grow again at each switch.
+   * The reference only applies its 1.05 line scale to line-synced lyrics.
+   */
+  .lyrics-line[data-karaoke="true"][data-active="true"] {
+    transform: none;
+  }
+
+  /*
+   * A row that just finished keeps its brightness for a beat while the next
+   * line lights up, then fades. Without the delay the outgoing row dims at
+   * the same moment the incoming row is still at its 50% unsung fill, and the
+   * screen briefly has no bright line — read as the lyric vanishing.
+   */
+  .lyrics-line[data-sung="true"] {
+    transition:
+      opacity 0.22s cubic-bezier(0.61, 1, 0.88, 1) 0.12s,
+      color 0.1s ease-in-out,
+      transform 0.1s cubic-bezier(0.37, 0, 0.63, 1) !important;
   }
 
   .karaoke-active {
     text-shadow: var(--lyric-text-shadow);
+  }
+
+  /*
+   * Per-word / per-letter motion. The active line's rAF pass writes these
+   * custom properties; idle and sung lines keep the CSS defaults.
+   */
+  .lyrics-motion-word {
+    display: inline-block;
+    white-space: nowrap;
+    transform-origin: 50% 50%;
+    --word-s: 0.95;
+    --word-y: 0.01;
+    /* This wrapper compounds with the per-letter transform, like the
+       reference's syllable container. */
+    transform: translateY(calc(var(--word-y, 0) * 1em))
+      scale(var(--word-s, 1));
+  }
+
+  .lyrics-motion-unit {
+    display: inline-block;
+    transform-origin: 50% 50%;
+    /* Idle words already sit in the resting pose the rAF pass starts from. */
+    --lyric-s: 0.95;
+    --lyric-y: 0.01;
+    transform: translateY(calc(var(--lyric-y, 0) * 1em))
+      scale(var(--lyric-s, 1));
+    /*
+     * A moving gradient front paints the text, exactly like the reference's
+     * per-syllable fill. Unsung text sits at 50% of the active colour, the
+     * sung side at 85%; the rAF pass moves --lyric-p from -20 to 100.
+     */
+    background-image: linear-gradient(
+      90deg,
+      color-mix(in srgb, currentColor 85%, transparent)
+        calc(var(--lyric-p, 100) * 1%),
+      color-mix(in srgb, currentColor 50%, transparent)
+        calc(var(--lyric-p, 100) * 1% + 20%)
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: 0 0 calc(4px + var(--lyric-g, 0) * 2px)
+      color-mix(
+        in srgb,
+        currentColor calc(var(--lyric-g, 0) * 35%),
+        transparent
+      );
+  }
+
+  /* Sustained syllables get the stronger glow of the reference. */
+  .lyrics-motion-word[data-emphasis="true"] .lyrics-motion-unit {
+    --lyric-y: 0.02;
+    text-shadow: 0 0 calc(4px + var(--lyric-g, 0) * 6px)
+      color-mix(
+        in srgb,
+        currentColor calc(var(--lyric-g, 0) * 100%),
+        transparent
+      );
+  }
+
+  /* Already-sung rows rest at full size; upcoming rows stay in idle pose. */
+  .lyrics-line[data-sung="true"] .lyrics-motion-word {
+    --word-s: 1;
+    --word-y: 0;
+  }
+
+  .lyrics-line[data-sung="true"] .lyrics-motion-unit {
+    --lyric-s: 1;
+    --lyric-y: 0;
+  }
+
+  /*
+   * When a row stops being active, its inline rAF values disappear. Let the
+   * idle/sung poses ease instead of snapping while the row fades to 35%.
+   */
+  .lyrics-line:not([data-active="true"]) .lyrics-motion-word,
+  .lyrics-line:not([data-active="true"]) .lyrics-motion-unit {
+    transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
   }
 
   /* Unsynced lyrics have no per-line opacity, so they use their own token. */
@@ -1531,4 +1660,13 @@ html[data-lucid-light="true"] .format-tag {
   padding: 1px 4px;
   color: rgba(20, 20, 24, 0.78) !important;
   line-height: 1.1;
+}
+
+/* Super/workspace switches put Chromium into keyboard modality, and the last
+   clicked control keeps its focus ring until the next click. Keep keyboard
+   focus behaviour, but paint no ring around buttons, cards or lyric lines.
+   The root prefix also overrides the resize-handle outline rule above. */
+:root :focus-visible {
+  outline: none !important;
+  --tw-ring-shadow: 0 0 #0000 !important;
 }
