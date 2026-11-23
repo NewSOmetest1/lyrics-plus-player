@@ -329,6 +329,113 @@ function runFixtures() {
 }
 
 /* ------------------------------------------------------------------ *
+ * Direct search + cache
+ * ------------------------------------------------------------------ */
+
+async function runDirectSearch() {
+  console.log(paint("\nDirect search", "bold"));
+
+  const callsBefore = ytDlpCalls.length;
+  const startedAt = performance.now();
+  let direct = null;
+  let error = null;
+  try {
+    direct = await utils.searchYoutube("Daft Punk Get Lucky", 6);
+  } catch (caught) {
+    error = caught;
+  }
+  const directMs = Math.round(performance.now() - startedAt);
+  const spawned = ytDlpCalls.length - callsBefore;
+
+  check(
+    "Innertube search returns results",
+    Array.isArray(direct) && direct.length > 0,
+    error
+      ? String(error.message ?? error)
+      : `${direct?.length ?? 0} entries in ${directMs} ms`,
+  );
+  check(
+    "direct search spawns no yt-dlp",
+    spawned === 0,
+    `${spawned} calls`,
+  );
+  if (direct?.length) {
+    check(
+      "entries carry id, title and watch URL",
+      direct.every(
+        (entry) =>
+          typeof entry.id === "string" &&
+          entry.id.length > 0 &&
+          entry.title.length > 0 &&
+          entry.url.includes(entry.id),
+      ),
+      direct
+        .slice(0, 3)
+        .map((entry) => entry.title)
+        .join(" | "),
+    );
+  }
+
+  const firstStartedAt = performance.now();
+  const first = await utils.searchEntries("Daft Punk Get Lucky");
+  const firstMs = Math.round(performance.now() - firstStartedAt);
+  const firstSpawned = ytDlpCalls.length - callsBefore - spawned;
+  check(
+    "cached search path returns entries without yt-dlp",
+    first.length > 0 && firstSpawned === 0,
+    `${first.length} entries in ${firstMs} ms`,
+  );
+
+  const cacheStartedAt = performance.now();
+  const cached = await utils.searchEntries("Daft Punk Get Lucky");
+  const cacheMs = Math.round(performance.now() - cacheStartedAt);
+  check(
+    "search cache answers in under 50 ms",
+    cached.length === first.length && cacheMs < 50,
+    `${cacheMs} ms`,
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Fallback contract
+ * ------------------------------------------------------------------ */
+
+async function runFallback() {
+  console.log(paint("\nFallback contract", "bold"));
+
+  const originalFetch = globalThis.fetch;
+  let blocked = 0;
+  globalThis.fetch = (input, init) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (url.includes("/youtubei/v1/search")) {
+      blocked += 1;
+      return Promise.reject(new Error("blocked by test"));
+    }
+    return originalFetch(input, init);
+  };
+
+  const callsBefore = ytDlpCalls.length;
+  let entries = [];
+  let error = null;
+  try {
+    entries = await utils.searchEntries("Daft Punk One More Time");
+  } catch (caught) {
+    error = caught;
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  const spawned = ytDlpCalls.length - callsBefore;
+
+  check(
+    "failed Innertube search falls back to yt-dlp",
+    blocked > 0 && spawned > 0 && entries.length > 0,
+    error
+      ? String(error.message ?? error)
+      : `blocked=${blocked} yt-dlp=${spawned} entries=${entries.length}`,
+  );
+}
+
+/* ------------------------------------------------------------------ *
  * Live resolve
  * ------------------------------------------------------------------ */
 
@@ -390,6 +497,19 @@ async function runLive() {
   }
   const resolveMs = Math.round(performance.now() - startedAt);
   const resolveCalls = ytDlpCalls.length - callsBefore;
+  const resolveRecords = ytDlpCalls.slice(callsBefore);
+  const searchFallback = resolveRecords.some((call) =>
+    call.target.startsWith("ytsearch"),
+  );
+
+  console.log(
+    searchFallback
+      ? paint(
+          `  note: direct search missed — resolver fell back to yt-dlp ytsearch (${resolveMs} ms)`,
+          "yellow",
+        )
+      : paint(`  direct Innertube search used (${resolveMs} ms)`, "dim"),
+  );
 
   check(
     "resolves a full YouTube stream",
@@ -476,6 +596,8 @@ app
   .then(async () => {
     try {
       runFixtures();
+      await runDirectSearch();
+      await runFallback();
       await runLive();
       printCalls();
     } catch (error) {

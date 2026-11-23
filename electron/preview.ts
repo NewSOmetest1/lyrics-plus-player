@@ -5,6 +5,7 @@ import { areArtistsMatching } from "../shared/translit";
 import { spotifyKey } from "../shared/spotifyMatch";
 import { probeMediaRange } from "./mediaProbe";
 import type { PreviewLookup, PreviewPlaybackSource } from "./types";
+import { searchYoutube } from "./youtubeSearch";
 
 const execFileAsync = promisify(execFile);
 
@@ -19,7 +20,11 @@ const NEGATIVE_TTL_MS = 5 * 60 * 1000;
 const STREAM_TTL_MS = 15 * 60 * 1000;
 /** SoundCloud HLS signatures are short-lived, often under 10 minutes. */
 const SOUNDCLOUD_STREAM_TTL_MS = 4 * 60 * 1000;
+/** Search results change slowly; a longer TTL keeps URL refreshes cheap. */
+const SEARCH_TTL_MS = 6 * 60 * 60 * 1000;
+const SEARCH_NEGATIVE_TTL_MS = 5 * 60 * 1000;
 const CACHE_LIMIT = 800;
+const SEARCH_CACHE_LIMIT = 200;
 
 const EMBED_USER_AGENT =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -29,8 +34,14 @@ interface CachedPreview {
   expiresAt: number;
 }
 
+interface CachedSearch {
+  entries: YtSearchEntry[];
+  expiresAt: number;
+}
+
 const previewCache = new Map<string, CachedPreview>();
 const streamCache = new Map<string, CachedPreview>();
+const searchCache = new Map<string, CachedSearch>();
 
 function trim(value: unknown, limit = 300): string {
   return typeof value === "string" ? value.trim().slice(0, limit) : "";
@@ -548,6 +559,29 @@ function variantKey(value: string): string {
     .trim();
 }
 
+function searchCacheKey(prefix: string, query: string): string {
+  return `${prefix}\u0000${query.trim().toLocaleLowerCase()}`;
+}
+
+function readSearchCache(key: string): YtSearchEntry[] | null {
+  const entry = searchCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    searchCache.delete(key);
+    return null;
+  }
+  return entry.entries;
+}
+
+function rememberSearch(
+  key: string,
+  entries: YtSearchEntry[],
+  ttl: number,
+): void {
+  if (searchCache.size >= SEARCH_CACHE_LIMIT) searchCache.clear();
+  searchCache.set(key, { entries, expiresAt: Date.now() + ttl });
+}
+
 async function ytDlpSearchEntries(
   query: string,
   prefix = "ytsearch6",
@@ -573,6 +607,33 @@ async function ytDlpSearchEntries(
   } catch {
     return [];
   }
+}
+
+/**
+ * Search through the cache, then the direct Innertube endpoint, then yt-dlp.
+ * The direct request is ~1 s faster; any failure (network, schema change,
+ * empty results) falls through to the proven yt-dlp path. Empty results are
+ * cached briefly so repeated misses stay cheap without pinning a transient
+ * outage for hours.
+ */
+async function searchEntries(
+  query: string,
+  prefix = "ytsearch6",
+): Promise<YtSearchEntry[]> {
+  const cacheKey = searchCacheKey(prefix, query);
+  const cached = readSearchCache(cacheKey);
+  if (cached) return cached;
+
+  let entries: YtSearchEntry[] | null = null;
+  if (prefix.startsWith("ytsearch")) {
+    const limit = Number(prefix.slice("ytsearch".length)) || 6;
+    entries = await searchYoutube(query, limit);
+  }
+  if (!entries) entries = await ytDlpSearchEntries(query, prefix);
+
+  const ttl = entries.length > 0 ? SEARCH_TTL_MS : SEARCH_NEGATIVE_TTL_MS;
+  rememberSearch(cacheKey, entries, ttl);
+  return entries;
 }
 
 /**
@@ -766,14 +827,15 @@ export async function resolveFullStream(
 
   const query = `${input.artist} ${input.title}`;
   const youtubeArgs = [
-    // web_embedded is the only client that currently returns progressive
-    // audio URLs the renderer can play. android/android_vr/mweb hand out URLs
-    // that answer 403, and the default web client does too. A multi-client
-    // list also takes ~1 s longer because yt-dlp fetches every player response.
+    // visionos is currently the only client that reliably returns progressive
+    // audio URLs the renderer can play; measured 7/7 tracks with working
+    // head/tail range probes. web_embedded frequently degrades to HLS-only.
+    // Keep a single client: a multi-client list costs ~1 s more because
+    // yt-dlp fetches every player response.
     "--extractor-args",
-    "youtube:player_client=web_embedded",
+    "youtube:player_client=visionos",
   ];
-  const entries = await ytDlpSearchEntries(query);
+  const entries = await searchEntries(query);
   const youtubeUrl = await playableCandidateUrl(
     rankYoutubeEntries(entries, input),
     youtubeArgs,
@@ -791,7 +853,7 @@ export async function resolveFullStream(
     return result;
   }
 
-  const soundcloudEntries = await ytDlpSearchEntries(query, "scsearch5");
+  const soundcloudEntries = await searchEntries(query, "scsearch5");
   const soundcloudUrl = await playableCandidateUrl(
     rankSoundcloudEntries(soundcloudEntries, input),
     [],
@@ -823,4 +885,6 @@ export const previewTestUtils = {
   addsUnrequestedVariant,
   directHttps,
   probeMediaRange,
+  searchEntries,
+  searchYoutube,
 };
