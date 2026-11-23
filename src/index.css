@@ -543,6 +543,14 @@
   .lyrics-motion-unit {
     display: inline-block;
     transform-origin: 50% 50%;
+    /*
+     * `background-clip: text` only paints inside this box, and Cyrillic
+     * glyphs (Є, Л, У, Р, й) have small negative side bearings. Without a
+     * padded paint box the left arc is cut off. The negative margin cancels
+     * the padding, so line width, centering and wrapping stay unchanged.
+     */
+    padding: 0 0.08em;
+    margin: 0 -0.08em;
     /* Idle words already sit in the resting pose the rAF pass starts from. */
     --lyric-s: 0.95;
     --lyric-y: 0.01;
