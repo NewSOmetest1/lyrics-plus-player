@@ -13,8 +13,6 @@ const YT_DLP_TIMEOUT_MS = 35_000;
 /** Two range probes per URL absorb a single CDN connect timeout. */
 const PROBE_TIMEOUT_MS = 10_000;
 const PROBE_ATTEMPTS = 2;
-/** Retry the same search result before falling back to a worse match. */
-const CANDIDATE_ATTEMPTS = 2;
 /** Deezer signs preview URLs for roughly 15 minutes. */
 const PREVIEW_TTL_MS = 10 * 60 * 1000;
 const NEGATIVE_TTL_MS = 5 * 60 * 1000;
@@ -241,7 +239,7 @@ function deezerScore(
   const key = spotifyKey(track.title ?? "");
   const wanted = spotifyKey(input.title);
   if (!key || !wanted) return 0;
-  if (addsUnrequestedVariant(key, wanted)) return 0;
+  if (addsUnrequestedVariant(track.title ?? "", input.title)) return 0;
   const titleScore =
     key === wanted
       ? 100
@@ -406,9 +404,13 @@ async function ytDlpDirectUrl(
       process.env.YT_DLP_PATH?.trim() || "yt-dlp",
       [
         "-f",
-        // Prefer direct HTTPS audio. HLS manifests from manifest.googlevideo.com
-        // have no CORS headers and cannot be fetched by hls.js in the renderer.
-        "bestaudio[protocol=https]/bestaudio/best",
+        // Only progressive HTTPS audio. HLS formats are `m3u8_native` and
+        // manifest.googlevideo.com URLs have no CORS headers, so the renderer
+        // cannot play them. A broad `bestaudio/best` fallback silently selects
+        // HLS when a client returns no progressive format; that URL then fails
+        // a probe and wastes a whole extraction retry. Fail fast instead and
+        // let the caller try another client/candidate.
+        "bestaudio[protocol=https]/bestaudio[protocol=http]",
         "-g",
         "--no-playlist",
         "--no-warnings",
@@ -520,7 +522,12 @@ const VARIANT_TOKENS = [
   "demo",
 ];
 
-function addsUnrequestedVariant(candidateKey: string, wantedKey: string): boolean {
+function addsUnrequestedVariant(candidateText: string, wantedText: string): boolean {
+  // spotifyKey strips "(Live)"/"(Instrumental)" as version tags, so variant
+  // detection needs the raw title. Otherwise the variant filter never sees the
+  // very words it is supposed to reject.
+  const candidateKey = variantKey(candidateText);
+  const wantedKey = variantKey(wantedText);
   const paddedCandidate = ` ${candidateKey} `;
   const paddedWanted = ` ${wantedKey} `;
   return VARIANT_TOKENS.some(
@@ -528,6 +535,17 @@ function addsUnrequestedVariant(candidateKey: string, wantedKey: string): boolea
       paddedCandidate.includes(` ${token} `) &&
       !paddedWanted.includes(` ${token} `),
   );
+}
+
+/** Lowercase/punctuation-fold a raw title without stripping version tags. */
+function variantKey(value: string): string {
+  return String(value ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ё/gi, "е")
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
 }
 
 async function ytDlpSearchEntries(
@@ -576,7 +594,7 @@ function rankYoutubeEntries(
     const title = entry.title ?? "";
     if (!title || !wanted) return;
     const key = spotifyKey(title);
-    if (addsUnrequestedVariant(key, wanted)) return;
+    if (addsUnrequestedVariant(title, input.title)) return;
     const titleScore =
       key === wanted
         ? 100
@@ -619,7 +637,11 @@ function rankYoutubeEntries(
   }
 
   if (ranked.length === 0) {
-    const fallback = entries[0];
+    // The fallback rescues results whose title is too noisy to score, but it
+    // must still refuse live/instrumental edits the caller did not ask for.
+    const fallback = entries.find(
+      (entry) => !addsUnrequestedVariant(entry.title ?? "", input.title),
+    );
     if (!fallback) return ranked;
     if (
       expectedSeconds > 0 &&
@@ -635,26 +657,35 @@ function rankYoutubeEntries(
 }
 
 /**
- * Resolve and validate candidates in rank order. yt-dlp can hand out a URL that
- * serves the first ranges and then answers 403 near the end; `playableMediaUrl`
- * rejects it and the next result is tried.
+ * Resolve and validate candidates in rank order. yt-dlp can hand out a URL
+ * that serves the first ranges and then answers 403 near the end;
+ * `playableMediaUrl` rejects it and the next result is tried. Distinct search
+ * results are tried before repeating one: an extraction costs ~4-5 s, and a
+ * second upload is usually a better bet than re-extracting the same video.
  */
 async function playableCandidateUrl(
   entries: YtSearchEntry[],
   extraArgs: string[],
   limit = 3,
 ): Promise<string | null> {
-  for (const entry of entries.slice(0, limit)) {
-    const target = entryTarget(entry);
-    if (!target) continue;
-    for (let attempt = 0; attempt < CANDIDATE_ATTEMPTS; attempt += 1) {
-      const playable = await playableMediaUrl(
-        await ytDlpDirectUrl(target, extraArgs),
-      );
-      if (playable) return playable;
-    }
+  const targets = entries
+    .slice(0, limit)
+    .map(entryTarget)
+    .filter((target): target is string => Boolean(target));
+
+  for (const target of targets) {
+    const playable = await playableMediaUrl(
+      await ytDlpDirectUrl(target, extraArgs),
+    );
+    if (playable) return playable;
   }
-  return null;
+
+  // One second chance for the best-ranked result. YouTube intermittently
+  // returns an HLS-only player response; a fresh extraction can flip it back
+  // to progressive audio.
+  const first = targets[0];
+  if (!first) return null;
+  return playableMediaUrl(await ytDlpDirectUrl(first, extraArgs));
 }
 
 /**
@@ -674,7 +705,7 @@ function rankSoundcloudEntries(
     const title = entry.title ?? "";
     if (!title || !wanted) return;
     const key = spotifyKey(title);
-    if (addsUnrequestedVariant(key, wanted)) return;
+    if (addsUnrequestedVariant(title, input.title)) return;
     const titleScore =
       key === wanted
         ? 100
@@ -735,17 +766,18 @@ export async function resolveFullStream(
 
   const query = `${input.artist} ${input.title}`;
   const youtubeArgs = [
-    // Android/embedded clients return direct HTTPS media. The default web
-    // client now hands out URLs that answer 403 for media requests. mweb and
-    // android_vr keep working when one of those clients is rate-limited.
+    // web_embedded is the only client that currently returns progressive
+    // audio URLs the renderer can play. android/android_vr/mweb hand out URLs
+    // that answer 403, and the default web client does too. A multi-client
+    // list also takes ~1 s longer because yt-dlp fetches every player response.
     "--extractor-args",
-    "youtube:player_client=android,web_embedded,mweb,android_vr",
+    "youtube:player_client=web_embedded",
   ];
   const entries = await ytDlpSearchEntries(query);
   const youtubeUrl = await playableCandidateUrl(
     rankYoutubeEntries(entries, input),
     youtubeArgs,
-    2,
+    3,
   );
 
   if (youtubeUrl) {
@@ -780,3 +812,15 @@ export async function resolveFullStream(
     "Full stream is unavailable: yt-dlp could not find a playable source.",
   );
 }
+
+/**
+ * Internals exercised by `scripts/test-youtube.cjs`. Kept in one object so the
+ * production surface stays limited to `resolveFullStream`.
+ */
+export const previewTestUtils = {
+  rankYoutubeEntries,
+  rankSoundcloudEntries,
+  addsUnrequestedVariant,
+  directHttps,
+  probeMediaRange,
+};
