@@ -53,8 +53,9 @@ Screenshots use the built-in demo library from the browser preview.
   compact lyric window, palette colors, ambient/noise toggles, provider order,
   music folders and downloader paths.
 - **Provider pipeline** — enable, reorder and prioritize lyric sources:
-  LRCLIB, Spotify (sp_dc cookie), Musixmatch (API key / refresh token) and
-  embedded tags. Local `.lrc` sidecars always win.
+  LRCLIB, Spotify (sp_dc cookie), Musixmatch (autonomous token), embedded tags
+  and Genius (public web search, plain text fallback). Local `.lrc` sidecars
+  always win.
 - **Browser preview** — the UI runs in a normal browser with a demo library and
   simulated playback.
 
@@ -182,8 +183,10 @@ result is used only when no provider returns timestamps.
 1. **LRCLIB** — free, no key required.
 2. **Spotify** — requires the `sp_dc` cookie of a logged-in account. The app
    resolves the track through the Spotify search API and reads Color Lyrics.
-3. **Musixmatch** — developer API key or refresh token.
+3. **Musixmatch** — anonymous app-mobile token, refreshed automatically.
 4. **Embedded tags** — FLAC Vorbis `LYRICS`, ID3 `USLT`/`SYLT`.
+5. **Genius** — public web search, no token. Plain text only, so it runs after
+   the timed sources and translation pages are rejected.
 
 Local `.lrc` sidecars are checked before any provider. A failed online lookup
 never blocks playback.

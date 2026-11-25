@@ -9,6 +9,8 @@
  *  - Spotify sp_dc → hidden Electron BrowserWindow → Color Lyrics
  *  - Musixmatch autonomous app-mobile token → macro.subtitles.get
  *
+ * Genius is a plain-text fallback and is covered by `npm run test:genius`.
+ *
  * Track: The Weeknd — Blinding Lights (Spotify id 0VjIjW4GlUZAMYd2vXMi3b).
  */
 

@@ -161,7 +161,7 @@ export function NowPlayingView() {
               <StatusPanel
                 icon={status === "error" ? TriangleAlert : FileText}
                 title={status === "error" ? "Could not load lyrics" : "No lyrics found"}
-                description="Drop a .lrc file next to the track, embed lyrics in the tags, or enable LRCLIB, Musixmatch or Spotify in Providers."
+                description="Drop a .lrc file next to the track, embed lyrics in the tags, or enable LRCLIB, Musixmatch, Spotify or Genius in Providers."
                 action={
                   track ? (
                     <button

@@ -82,6 +82,11 @@ const PROVIDER_META: Record<
     description: "Read lyrics stored inside local FLAC / MP3 files.",
     badge: "local",
   },
+  genius: {
+    name: "Genius",
+    description: "Public web search. Plain text fallback with no timestamps.",
+    badge: "unsynced",
+  },
 };
 
 const SYNC_MODE_META: Record<LyricsMode, { name: string; description: string }> = {
@@ -655,7 +660,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   };
 
   const testProviderById = async (provider: ProviderId) => {
-    if (provider === "embedded") return;
+    if (provider === "embedded" || provider === "genius") return;
     if (!isDesktop) {
       useToastStore.getState().push({
         kind: "info",
@@ -1424,14 +1429,15 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                               {meta.description}
                             </p>
                           </div>
-                          {provider.id !== "embedded" && (
-                            <TestProviderButton
-                              provider={provider.id}
-                              busy={testingProvider === provider.id}
-                              result={testResults[provider.id]}
-                              onTest={() => void testProviderById(provider.id)}
-                            />
-                          )}
+                          {provider.id !== "embedded" &&
+                            provider.id !== "genius" && (
+                              <TestProviderButton
+                                provider={provider.id}
+                                busy={testingProvider === provider.id}
+                                result={testResults[provider.id]}
+                                onTest={() => void testProviderById(provider.id)}
+                              />
+                            )}
                           <div className="flex shrink-0 flex-col">
                             <button
                               type="button"

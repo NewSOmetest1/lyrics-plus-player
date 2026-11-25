@@ -1,9 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-import { BrowserWindow, session } from "electron";
+import { BrowserWindow, net, session } from "electron";
 import { parseFile } from "music-metadata";
 
+import { areArtistsMatching } from "../shared/translit";
 import * as spotifyAuth from "./spotify-auth.cjs";
 import type { LibraryStore } from "./store";
 import type { CachedLyrics, LyricsPayload, TrackRecord } from "./types";
@@ -12,7 +13,7 @@ const USER_AGENT =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 const LRC_PATTERN = /\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]/;
 
-type ProviderId = "lrclib" | "spotify" | "musixmatch" | "embedded";
+type ProviderId = "lrclib" | "spotify" | "musixmatch" | "embedded" | "genius";
 
 interface ProviderSetting {
   id: ProviderId;
@@ -24,6 +25,8 @@ const DEFAULT_PROVIDERS: ProviderSetting[] = [
   { id: "spotify", enabled: false },
   { id: "musixmatch", enabled: false },
   { id: "embedded", enabled: true },
+  // Unsynced-only fallback: Genius has no timestamps, so it runs last.
+  { id: "genius", enabled: true },
 ];
 
 function isSynced(content: string): boolean {
@@ -1087,6 +1090,344 @@ export function musixmatchTokenForTest(): Promise<string | null> {
   return musixmatchUserToken();
 }
 
+/* ------------------------------------------------------------------------- */
+/* Genius — public web search, plain text only                                */
+/* ------------------------------------------------------------------------- */
+
+const GENIUS_ORIGIN = "https://genius.com";
+const GENIUS_TIMEOUT_MS = 10_000;
+const GENIUS_SEARCH_HEADERS: Record<string, string> = {
+  "User-Agent": USER_AGENT,
+  Accept: "application/json, text/plain, */*",
+  "Accept-Language": "en-US,en;q=0.9",
+  Referer: `${GENIUS_ORIGIN}/`,
+  "X-Requested-With": "XMLHttpRequest",
+};
+const GENIUS_PAGE_HEADERS: Record<string, string> = {
+  "User-Agent": USER_AGENT,
+  Accept:
+    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+  Referer: `${GENIUS_ORIGIN}/`,
+};
+
+interface GeniusSong {
+  _type?: string;
+  title?: string;
+  title_with_featured?: string;
+  url?: string;
+  path?: string;
+  artist_names?: string;
+  primary_artist?: { name?: string };
+}
+
+interface GeniusSearchPayload {
+  response?: {
+    sections?: Array<{
+      type?: string;
+      hits?: Array<{ type?: string; result?: GeniusSong }>;
+    }>;
+  };
+}
+
+/**
+ * Genius publishes translations under accounts such as "Genius English
+ * Translations" and localized variants. Those pages are never the requested
+ * lyrics, even when the title looks identical.
+ */
+function isGeniusTranslationArtist(artist: string): boolean {
+  return /\bgenius\b[\s\S]*(?:translations?|tradu[cç][oõ]es|traducciones|traductions?|traduzion[ei]|übersetzungen?|çeviriler?|переводы?)/i.test(
+    artist,
+  );
+}
+
+function geniusSongArtist(song: GeniusSong): string {
+  return (song.primary_artist?.name ?? song.artist_names ?? "").trim();
+}
+
+/** Remove trailing parenthetical aliases such as "Artist (Legal Name)". */
+function stripTrailingGroups(value: string): string {
+  let result = value.trim();
+  for (;;) {
+    const next = result
+      .replace(/\s*[([{][^)\]}]*[)\]}]?\s*$/, "")
+      .trim();
+    if (!next || next === result) return result;
+    result = next;
+  }
+}
+
+const GENIUS_TITLE_VARIANT =
+  /\b(?:remix|re-mix|live|instrumental|karaoke|cover|acoustic|demo|edit|mix|version|remaster(?:ed)?|sped\s*up|slowed|reverb|nightcore|8d|orchestral|piano|guitar|unplugged|a\s*cappella|part|pt|translation|transliteration|romanized|deluxe|bonus|explicit|clean|radio|extended)\b/i;
+
+/** True when the strings use at least one different writing system. */
+function hasAlternativeScript(alias: string, expected: string): boolean {
+  const mask = (value: string): number => {
+    let result = 0;
+    if (/\p{Script=Latin}/u.test(value)) result |= 1;
+    if (/\p{Script=Cyrillic}/u.test(value)) result |= 2;
+    if (/\p{Script=Greek}/u.test(value)) result |= 4;
+    if (/\p{Script=Arabic}/u.test(value)) result |= 8;
+    if (/\p{Script=Hebrew}/u.test(value)) result |= 16;
+    if (/\p{Script=Han}/u.test(value)) result |= 32;
+    if (/\p{Script=Hiragana}|\p{Script=Katakana}/u.test(value)) result |= 64;
+    if (/\p{Script=Hangul}/u.test(value)) result |= 128;
+    return result;
+  };
+  const aliasMask = mask(alias);
+  return (aliasMask & ~mask(expected)) !== 0;
+}
+
+/**
+ * Exact cleaned-title match. A trailing parenthetical is accepted only as an
+ * alternate-language title ("в ад (to hell)") and never as a version tag
+ * ("Song (Remix)"). That keeps translated titles usable without relaxing the
+ * match to live/remix/cover uploads.
+ */
+function geniusTitleMatches(expected: string, rawTitle: string): boolean {
+  const candidate = cleanTrackTitle(rawTitle).title || rawTitle;
+  if (normalizeForMatch(candidate) === expected) return true;
+
+  const parenthetical = /^(.*\S)\s*[([{]([^)\]}]+)[)\]}]\s*$/.exec(rawTitle);
+  if (!parenthetical) return false;
+  if (GENIUS_TITLE_VARIANT.test(parenthetical[2])) return false;
+  const base = cleanTrackTitle(parenthetical[1]).title || parenthetical[1];
+  if (normalizeForMatch(base) !== expected) return false;
+  return hasAlternativeScript(parenthetical[2], expected);
+}
+
+function geniusArtistMatches(expected: string, rawArtist: string): boolean {
+  if (areArtistsMatching(expected, rawArtist)) return true;
+  const base = stripTrailingGroups(rawArtist);
+  return base !== rawArtist && areArtistsMatching(expected, base);
+}
+
+/**
+ * Only accept a result whose cleaned title matches exactly and whose primary
+ * artist passes the shared transliteration-aware artist matcher. Genius has no
+ * duration, so this is the only guard against covers and translations.
+ */
+function selectGeniusSong(
+  songs: GeniusSong[],
+  title: string,
+  artist: string,
+): GeniusSong | null {
+  const cleaned = cleanTrackTitle(title, artist);
+  const wantedTitle = normalizeForMatch(cleaned.title || title);
+  const wantedArtist = cleaned.artist || artist;
+  if (!wantedTitle || !wantedArtist) return null;
+
+  for (const song of songs) {
+    const rawArtist = geniusSongArtist(song);
+    const artistNames = song.artist_names?.trim() ?? "";
+    if (
+      isGeniusTranslationArtist(rawArtist) ||
+      isGeniusTranslationArtist(artistNames)
+    ) {
+      continue;
+    }
+    const songTitle = song.title ?? song.title_with_featured ?? "";
+    if (!rawArtist || !songTitle) continue;
+
+    if (!geniusTitleMatches(wantedTitle, songTitle)) continue;
+    if (!geniusArtistMatches(wantedArtist, rawArtist)) continue;
+    return song;
+  }
+  return null;
+}
+
+function geniusSongUrl(song: GeniusSong): string | null {
+  const raw = song.url ?? (song.path ? `${GENIUS_ORIGIN}${song.path}` : "");
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:") return null;
+    if (url.hostname !== "genius.com" && url.hostname !== "www.genius.com") {
+      return null;
+    }
+    if (!/\/[^/]+-lyrics\/?$/.test(url.pathname)) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+/** Find the `</div>` matching a `<div>` whose opening tag ends at `start`. */
+function geniusDivBounds(
+  html: string,
+  start: number,
+): { contentEnd: number; end: number } | null {
+  const tags = /<div\b[^>]*>|<\/div\s*>/gi;
+  tags.lastIndex = start;
+  let depth = 1;
+  let tag: RegExpExecArray | null;
+  while ((tag = tags.exec(html))) {
+    if (tag[0][1] === "/") {
+      depth -= 1;
+      if (depth === 0) return { contentEnd: tag.index, end: tags.lastIndex };
+    } else {
+      depth += 1;
+    }
+  }
+  return null;
+}
+
+function extractGeniusContainers(html: string): string[] {
+  const containers: string[] = [];
+  const open = /<div\b[^>]*\bdata-lyrics-container="true"[^>]*>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = open.exec(html))) {
+    const bounds = geniusDivBounds(html, open.lastIndex);
+    if (!bounds) break;
+    containers.push(html.slice(open.lastIndex, bounds.contentEnd));
+    open.lastIndex = bounds.end;
+  }
+  return containers;
+}
+
+/** Drop contributor headers / ad blocks that share the lyrics container. */
+function removeGeniusExcluded(fragment: string): string {
+  const open = /<div\b[^>]*\bdata-exclude-from-selection="true"[^>]*>/gi;
+  let result = "";
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  while ((match = open.exec(fragment))) {
+    const bounds = geniusDivBounds(fragment, open.lastIndex);
+    if (!bounds) break;
+    result += fragment.slice(cursor, match.index);
+    cursor = bounds.end;
+    open.lastIndex = bounds.end;
+  }
+  return result + fragment.slice(cursor);
+}
+
+function decodeGeniusEntities(value: string): string {
+  const named: Record<string, string> = {
+    amp: "&",
+    lt: "<",
+    gt: ">",
+    quot: '"',
+    apos: "'",
+    nbsp: " ",
+  };
+  return value.replace(
+    /&(#x?[0-9a-f]+|[a-z]+);/gi,
+    (entity, body: string) => {
+      if (body.startsWith("#")) {
+        const hex = body[1]?.toLowerCase() === "x";
+        const code = Number.parseInt(body.slice(hex ? 2 : 1), hex ? 16 : 10);
+        if (!Number.isFinite(code) || code < 0 || code > 0x10ffff) {
+          return entity;
+        }
+        try {
+          return String.fromCodePoint(code);
+        } catch {
+          return entity;
+        }
+      }
+      return named[body.toLowerCase()] ?? entity;
+    },
+  );
+}
+
+function geniusHtmlToText(fragment: string): string {
+  // A sentinel survives whitespace normalization, so real <br> breaks stay
+  // distinct from the source formatting newlines between tags.
+  let text = removeGeniusExcluded(fragment);
+  text = text.replace(/<br\s*\/?>/gi, "\u0000");
+  text = text.replace(/<\/(?:p|div|h[1-6]|li|blockquote)>/gi, "\u0000");
+  text = text.replace(/<[^>]*>/g, "");
+  text = decodeGeniusEntities(text);
+  text = text.replace(/\s+/g, " ");
+  text = text.replace(/\u0000/g, "\n");
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function parseGeniusLyrics(html: string): string | null {
+  const parts = extractGeniusContainers(html)
+    .map(geniusHtmlToText)
+    .filter(Boolean);
+  if (parts.length === 0) return null;
+  const content = parts.join("\n\n").replace(/\n{3,}/g, "\n\n").trim();
+  return content || null;
+}
+
+async function geniusSearchCandidates(
+  track: TrackRecord,
+): Promise<GeniusSong[]> {
+  const cleaned = cleanTrackTitle(track.title, track.artist);
+  const query = [cleaned.artist || track.artist, cleaned.title || track.title]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  if (!query) return [];
+
+  try {
+    // Genius sits behind Cloudflare, which rejects Node's TLS fingerprint from
+    // Electron with 403. Chromium's network stack gets the normal response.
+    const response = await net.fetch(
+      `${GENIUS_ORIGIN}/api/search/multi?q=${encodeURIComponent(query)}`,
+      {
+        headers: GENIUS_SEARCH_HEADERS,
+        signal: AbortSignal.timeout(GENIUS_TIMEOUT_MS),
+      },
+    );
+    if (!response.ok) {
+      console.warn("[lyrics] Genius search HTTP", response.status);
+      return [];
+    }
+    const payload = (await response.json()) as GeniusSearchPayload;
+    const songs: GeniusSong[] = [];
+    const seen = new Set<string>();
+    for (const section of payload.response?.sections ?? []) {
+      for (const hit of section.hits ?? []) {
+        const song = hit.result;
+        if (!song) continue;
+        if ((hit.type ?? song._type) !== "song") continue;
+        const key = song.url ?? song.path ?? "";
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        songs.push(song);
+      }
+    }
+    return songs;
+  } catch (error) {
+    console.warn(
+      "[lyrics] Genius search failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+    return [];
+  }
+}
+
+async function fetchGenius(track: TrackRecord): Promise<string | null> {
+  try {
+    const songs = await geniusSearchCandidates(track);
+    const song = selectGeniusSong(songs, track.title, track.artist);
+    if (!song) return null;
+    const url = geniusSongUrl(song);
+    if (!url) return null;
+
+    const response = await net.fetch(url, {
+      headers: GENIUS_PAGE_HEADERS,
+      signal: AbortSignal.timeout(12_000),
+      redirect: "follow",
+    });
+    if (!response.ok) {
+      console.warn("[lyrics] Genius page HTTP", response.status);
+      return null;
+    }
+    return parseGeniusLyrics(await response.text());
+  } catch (error) {
+    console.warn("[lyrics] Genius failed:", error);
+    return null;
+  }
+}
+
 async function runProvider(
   id: ProviderId,
   store: LibraryStore,
@@ -1107,6 +1448,10 @@ async function runProvider(
     }
     case "embedded": {
       const content = await embeddedLyrics(track.path);
+      return content ? { content, instrumental: false } : null;
+    }
+    case "genius": {
+      const content = await fetchGenius(track);
       return content ? { content, instrumental: false } : null;
     }
     default:
@@ -1474,4 +1819,12 @@ export async function testProvider(
       throw new Error(`Unknown provider: ${String(provider)}`);
   }
 }
+
+/** Pure Genius helpers exercised by `scripts/test-genius.cjs`. */
+export const geniusTestUtils = {
+  isGeniusTranslationArtist,
+  selectGeniusSong,
+  geniusSongUrl,
+  parseGeniusLyrics,
+};
 

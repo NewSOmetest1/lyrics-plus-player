@@ -6,7 +6,12 @@ import { normalizeLyricsMode } from "@/types";
 
 export type LyricsAlign = "left" | "center" | "right";
 
-export type ProviderId = "lrclib" | "spotify" | "musixmatch" | "embedded";
+export type ProviderId =
+  | "lrclib"
+  | "spotify"
+  | "musixmatch"
+  | "embedded"
+  | "genius";
 
 export interface ProviderSetting {
   id: ProviderId;
@@ -86,6 +91,7 @@ export const DEFAULT_SETTINGS: ClientSettings = {
     { id: "spotify", enabled: false },
     { id: "musixmatch", enabled: false },
     { id: "embedded", enabled: true },
+    { id: "genius", enabled: true },
   ],
   syncModes: [
     { id: "karaoke", enabled: true },
