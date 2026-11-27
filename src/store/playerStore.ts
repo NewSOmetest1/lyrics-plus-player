@@ -25,6 +25,7 @@ import { useSpotifyLikedStore } from "@/store/spotifyLikedStore";
 import { useToastStore } from "@/store/toastStore";
 
 let lyricsRequest = 0;
+let lyricsFocusToken = 0;
 /** Invalidates in-flight stream lookups when another track is selected. */
 let playRequest = 0;
 let lyricsDebounce: { timer: ReturnType<typeof setTimeout>; resolve: () => void } | null = null;
@@ -194,6 +195,23 @@ function waitForLyricsDebounce(): Promise<void> {
   });
 }
 
+/** Target line from the global lyrics search. */
+export interface LyricsFocusTarget {
+  trackId: number | string;
+  query: string;
+  lineText: string;
+  lineTimeMs: number | null;
+  /**
+   * The player already started at lineTimeMs, so the lyrics viewer must not
+   * seek again. A second seek flushes the decoder and audibly jumps.
+   */
+  startedAtLine?: boolean;
+}
+
+interface LyricsFocus extends LyricsFocusTarget {
+  token: number;
+}
+
 interface PlayerState {
   initialized: boolean;
   tracks: Track[];
@@ -241,6 +259,7 @@ interface PlayerState {
   lyricsSynced: boolean;
   lyricsStatus: LyricsStatus;
   lyricsInstrumental: boolean;
+  lyricsFocus: LyricsFocus | null;
 
   scanning: boolean;
   scanProgress: ScanProgress | null;
@@ -265,6 +284,9 @@ interface PlayerState {
   setShuffle: (shuffle: boolean) => void;
   addToQueue: (track: Track) => void;
   loadLyrics: (track: Track, force?: boolean) => Promise<void>;
+  /** Ask the lyrics viewer to reveal a line after the track's lyrics load. */
+  focusLyricsLine: (focus: LyricsFocusTarget) => void;
+  clearLyricsFocus: () => void;
 
   setView: (view: AppView) => void;
   setLibrarySection: (section: LibrarySection) => void;
@@ -504,6 +526,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   lyricsSynced: false,
   lyricsStatus: "idle",
   lyricsInstrumental: false,
+  lyricsFocus: null,
 
   scanning: false,
   scanProgress: null,
@@ -592,6 +615,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       lyricsSynced: false,
       lyricsStatus: "loading",
       lyricsInstrumental: false,
+      lyricsFocus: null,
       // New track → re-run the automatic mode chain until the user locks one.
       lyricsModeLocked: false,
     });
@@ -1093,6 +1117,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   setLyricsMode: (lyricsMode) => set({ lyricsMode, lyricsModeLocked: true }),
+
+  focusLyricsLine: (focus) =>
+    set({ lyricsFocus: { ...focus, token: ++lyricsFocusToken } }),
+
+  clearLyricsFocus: () => set({ lyricsFocus: null }),
 
   toggleFocus: () => {
     const { focusMode, view } = get();

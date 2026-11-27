@@ -36,6 +36,8 @@ export function LyricsViewer({ mode }: LyricsViewerProps) {
   const seek = usePlayerStore((state) => state.seek);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const currentTrack = usePlayerStore((state) => state.currentTrack);
+  const lyricsFocus = usePlayerStore((state) => state.lyricsFocus);
+  const clearLyricsFocus = usePlayerStore((state) => state.clearLyricsFocus);
   const position = useSmoothPosition();
 
   const align = useSettingsStore((state) => state.lyricsAlign);
@@ -55,11 +57,18 @@ export function LyricsViewer({ mode }: LyricsViewerProps) {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const unsyncedRefs = useRef<(HTMLElement | null)[]>([]);
+  const focusTimer = useRef<number | null>(null);
+  const lastTrackRef = useRef(currentTrack?.id);
   const intermissionRefs = useRef(new Map<string, HTMLDivElement>());
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedResult, setSelectedResult] = useState(0);
+  const [focusedLine, setFocusedLine] = useState<{
+    index: number;
+    token: number;
+  } | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // effectiveDelay = (settings.globalDelay || 0) + (trackCustomDelay || 0)
@@ -181,6 +190,97 @@ export function LyricsViewer({ mode }: LyricsViewerProps) {
     },
     [mode],
   );
+
+  // Global lyrics search hands the viewer a line to reveal. Synced results
+  // seek to the timestamp; plain-text results scroll to the matching line and
+  // pulse it briefly. The target survives the asynchronous lyrics load.
+  useEffect(() => {
+    if (!lyricsFocus || !currentTrack) return;
+    if (String(currentTrack.id) !== String(lyricsFocus.trackId)) return;
+    if (displayLines.length === 0) return;
+
+    const needle = lyricsFocus.query.trim().toLocaleLowerCase();
+    const targetTime = lyricsFocus.lineTimeMs;
+    let index = -1;
+    let matchedByTime = false;
+
+    if (targetTime !== null) {
+      index = displayLines.findIndex(
+        (line) =>
+          Math.abs(line.time - targetTime) <= 2 &&
+          (!needle || line.text.toLocaleLowerCase().includes(needle)),
+      );
+      matchedByTime = index >= 0;
+    }
+    if (index < 0 && needle) {
+      index = displayLines.findIndex((line) =>
+        line.text.toLocaleLowerCase().includes(needle),
+      );
+    }
+    if (index < 0 && lyricsFocus.lineText) {
+      const target = lyricsFocus.lineText.trim().toLocaleLowerCase();
+      index = displayLines.findIndex(
+        (line) => line.text.trim().toLocaleLowerCase() === target,
+      );
+    }
+    if (index < 0) {
+      clearLyricsFocus();
+      return;
+    }
+
+    if (mode === "unsynced") {
+      setFocusedLine({ index, token: lyricsFocus.token });
+      if (focusTimer.current !== null) window.clearTimeout(focusTimer.current);
+      focusTimer.current = window.setTimeout(() => {
+        setFocusedLine(null);
+        focusTimer.current = null;
+      }, 2_600);
+      requestAnimationFrame(() => {
+        const container = containerRef.current;
+        const element = unsyncedRefs.current[index];
+        if (!container || !element) return;
+        const containerRect = container.getBoundingClientRect();
+        const rect = element.getBoundingClientRect();
+        const top =
+          container.scrollTop +
+          rect.top -
+          containerRect.top -
+          container.clientHeight / 2 +
+          rect.height / 2;
+        container.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+      });
+    } else {
+      const line = displayLines[index];
+      // playTrack already started at the exact search timestamp. Seeking to it
+      // again makes the audio jump twice for no reason.
+      const alreadyAtLine = Boolean(lyricsFocus.startedAtLine) && matchedByTime;
+      if (!alreadyAtLine && line && line.time > 0) seek(line.time);
+      requestAnimationFrame(() => centerActiveRow(index, null, "smooth"));
+    }
+
+    clearLyricsFocus();
+  }, [
+    centerActiveRow,
+    clearLyricsFocus,
+    currentTrack,
+    displayLines,
+    lyricsFocus,
+    mode,
+    seek,
+  ]);
+
+  useEffect(
+    () => () => {
+      if (focusTimer.current !== null) window.clearTimeout(focusTimer.current);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (lastTrackRef.current === currentTrack?.id) return;
+    lastTrackRef.current = currentTrack?.id;
+    setFocusedLine(null);
+  }, [currentTrack?.id]);
 
   const visibleRows = useMemo(() => {
     if (!compactMode) return rows;
@@ -337,6 +437,9 @@ export function LyricsViewer({ mode }: LyricsViewerProps) {
           {lines.map((line, index) => (
             <motion.p
               key={`${line.text}-${index}`}
+              ref={(element) => {
+                unsyncedRefs.current[index] = element;
+              }}
               initial={animated ? { opacity: 0, y: 10 } : false}
               animate={{ opacity: 1, y: 0 }}
               transition={{
@@ -344,7 +447,11 @@ export function LyricsViewer({ mode }: LyricsViewerProps) {
                 delay: animated ? Math.min(index * 0.02, 0.4) : 0,
                 ease: EASE,
               }}
-              className="lyrics-unsynced-line py-2 font-lyrics font-medium leading-relaxed"
+              className={cn(
+                "lyrics-unsynced-line -mx-3 rounded-xl px-3 py-2 font-lyrics font-medium leading-relaxed transition-colors duration-500",
+                focusedLine?.index === index &&
+                  "bg-accent/[0.08] ring-1 ring-inset ring-accent/20",
+              )}
               style={{ textAlign }}
             >
               {line.text}

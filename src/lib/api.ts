@@ -6,6 +6,7 @@ import type {
   DownloadRequest,
   DownloadSnapshot,
   LyricsPayload,
+  LyricsSearchResult,
   MusicFolder,
   MusicFolderAddResult,
   MusicFolderRemoveResult,
@@ -39,6 +40,7 @@ import {
 } from "@/types";
 import type { SpotifyAuthResult, SpotifyAuthStatus } from "../../electron/api";
 import { DEMO_TRACKS, demoLyricsFor } from "@/data/demo";
+import { parseLrc, parsePlainLyrics } from "@/lib/lrc";
 
 export const isElectron =
   typeof window !== "undefined" && Boolean(window.electronAPI?.isElectron);
@@ -1097,6 +1099,55 @@ export const backend = {
       };
     }
     return electronApi().invoke<LyricsPayload>("get_lyrics", { trackId, force });
+  },
+
+  async searchLyrics(query: string): Promise<LyricsSearchResult[]> {
+    const needle = query.trim().toLocaleLowerCase();
+    if (needle.length < 2) return [];
+
+    if (!isElectron) {
+      await sleep(120);
+      const results: LyricsSearchResult[] = [];
+      for (const track of DEMO_TRACKS) {
+        const content = demoLyricsFor(Number(track.id));
+        if (!content) continue;
+        const synced = /\[\d{1,2}:\d{2}/.test(content);
+        const lines = synced ? parseLrc(content) : parsePlainLyrics(content);
+        let matchCount = 0;
+        let matchStart = -1;
+        let matchLine: { text: string; time: number } | null = null;
+
+        for (const line of lines) {
+          const haystack = line.text.toLocaleLowerCase();
+          let from = 0;
+          for (;;) {
+            const at = haystack.indexOf(needle, from);
+            if (at < 0) break;
+            if (matchStart < 0) {
+              matchStart = at;
+              matchLine = line;
+            }
+            matchCount += 1;
+            from = at + Math.max(1, needle.length);
+          }
+        }
+
+        if (!matchLine) continue;
+        results.push({
+          track,
+          source: "demo",
+          synced,
+          lineText: matchLine.text,
+          lineTimeMs: synced ? matchLine.time : null,
+          matchStart,
+          matchLength: needle.length,
+          matchCount,
+        });
+      }
+      return results;
+    }
+
+    return electronApi().invoke<LyricsSearchResult[]>("search_lyrics", needle);
   },
 
   async getStreamLyrics(input: {

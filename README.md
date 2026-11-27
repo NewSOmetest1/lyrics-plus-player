@@ -56,6 +56,8 @@ Screenshots use the built-in demo library from the browser preview.
   LRCLIB, Spotify (sp_dc cookie), Musixmatch (autonomous token), embedded tags
   and Genius (public web search, plain text fallback). Local `.lrc` sidecars
   always win.
+- **Lyrics search** — search every cached lyric line across the library, get a
+  highlighted snippet, and jump to the matching timestamp or plain-text line.
 - **Browser preview** — the UI runs in a normal browser with a demo library and
   simulated playback.
 

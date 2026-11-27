@@ -144,6 +144,21 @@ export interface Track {
   streamSpotifyId?: string;
 }
 
+/** One best matching lyric line from the library cache. */
+export interface LyricsSearchResult {
+  track: Track;
+  source: string;
+  synced: boolean;
+  lineText: string;
+  /** Timestamp of the line, or null for plain-text lyrics. */
+  lineTimeMs: number | null;
+  /** Offset of the first match inside lineText. */
+  matchStart: number;
+  matchLength: number;
+  /** How many times the query appears in the chosen line. */
+  matchCount: number;
+}
+
 export interface TrackStatsRecord {
   playCount: number;
   /** Actual listening time in seconds. */

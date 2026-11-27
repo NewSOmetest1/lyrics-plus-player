@@ -518,6 +518,11 @@ function registerIpc(): void {
     },
   );
 
+  ipcMain.handle("search_lyrics", (_event, query: unknown) => {
+    if (typeof query !== "string") return [];
+    return store.searchLyrics(query, 60);
+  });
+
   ipcMain.handle(
     "get_stream_lyrics",
     async (

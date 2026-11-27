@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Disc3,
+  FileText,
   Heart,
   Loader2,
   Music2,
@@ -15,13 +16,16 @@ import { useShallow } from "zustand/react/shallow";
 
 import type {
   DownloadRequest,
+  LyricsSearchResult,
   SpotifyAlbumSummary,
   SpotifyArtistSummary,
   SpotifyCatalogTrack,
   SpotifySearchCatalog,
   Track,
-} from "@/types";import { cn } from "@/lib/cn";
-import { formatCount, formatTime } from "@/lib/format";
+} from "@/types";
+import { cn } from "@/lib/cn";
+import { formatCount, formatSource, formatTime } from "@/lib/format";
+import { backend } from "@/lib/api";
 import { findLocalTrackForSpotify } from "@/lib/spotifyMatch";
 import { streamQueueFromCatalog } from "@/lib/streamTrack";
 import {
@@ -37,6 +41,7 @@ import { useDownloadStore } from "@/store/downloadStore";
 import { useSpotifyCatalogStore } from "@/store/spotifyCatalogStore";
 import { useArtistCacheStore } from "@/store/artistCacheStore";
 import { useToastStore } from "@/store/toastStore";
+import { CoverArt } from "@/components/ui/CoverArt";
 import { EqualizerBars } from "@/components/ui/EqualizerBars";
 import {
   TrackStatusAction,
@@ -53,7 +58,7 @@ import {
 const LIBRARY_ROW_HEIGHT = 58;
 const SPOTIFY_ROW_HEIGHT = 52;
 
-type SearchMode = "library" | "spotify";
+type SearchMode = "library" | "lyrics" | "spotify";
 
 const spotifyTrackAccessors: TrackSortAccessors<SpotifyCatalogTrack> = {
   title: (track) => track.title,
@@ -312,6 +317,110 @@ function SectionHeading({
   );
 }
 
+function LyricsSearchRow({
+  result,
+  active,
+  playing,
+  onPlay,
+}: {
+  result: LyricsSearchResult;
+  active: boolean;
+  playing: boolean;
+  onPlay: () => void;
+}) {
+  const text = result.lineText;
+  const start = Math.max(0, Math.min(result.matchStart, text.length));
+  const end = Math.min(text.length, start + result.matchLength);
+  const contextStart = Math.max(0, start - 42);
+  const contextEnd = Math.min(text.length, end + 64);
+
+  return (
+    <button
+      type="button"
+      onClick={onPlay}
+      className={cn(
+        "group flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left outline-none transition-colors focus-visible:bg-white/[0.06]",
+        active ? "bg-white/[0.07]" : "hover:bg-white/[0.04]",
+      )}
+    >
+      <CoverArt
+        track={result.track}
+        width={44}
+        height={44}
+        className="h-11 w-11 shrink-0 rounded-lg"
+        iconClassName="h-4 w-4"
+        showInitials={false}
+      />
+
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            className={cn(
+              "truncate text-[12.5px] font-semibold",
+              active ? "text-accent" : "text-white/85 group-hover:text-white",
+            )}
+          >
+            {result.track.title}
+          </span>
+          <span
+            className={cn(
+              "shrink-0 rounded-full border px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-[0.1em]",
+              result.synced
+                ? "border-accent/25 bg-accent-soft text-accent"
+                : "border-white/[0.08] bg-white/[0.04] text-white/35",
+            )}
+          >
+            {result.synced ? "Synced" : "Text"}
+          </span>
+          {result.matchCount > 1 && (
+            <span className="shrink-0 text-[9px] font-semibold tabular-nums text-white/25">
+              {result.matchCount} matches
+            </span>
+          )}
+        </div>
+
+        <p className="mt-0.5 truncate text-[10.5px] text-white/30">
+          {result.track.artist}
+          {result.track.album ? ` · ${result.track.album}` : ""}
+        </p>
+
+        <p className="mt-1.5 line-clamp-2 text-[12px] leading-relaxed text-white/60">
+          {contextStart > 0 && "…"}
+          {text.slice(contextStart, start)}
+          <mark className="rounded-[3px] bg-accent/30 px-0.5 text-white">
+            {text.slice(start, end)}
+          </mark>
+          {text.slice(end, contextEnd)}
+          {contextEnd < text.length && "…"}
+        </p>
+      </div>
+
+      <div className="flex w-[86px] shrink-0 flex-col items-end gap-1.5">
+        <span className="text-[8.5px] font-bold uppercase tracking-[0.12em] text-white/25">
+          {formatSource(result.source)}
+        </span>
+        <span className="text-[10px] tabular-nums text-white/35">
+          {result.lineTimeMs !== null ? formatTime(result.lineTimeMs) : "—"}
+        </span>
+        <span
+          className={cn(
+            "mt-0.5 flex h-6 w-6 items-center justify-center rounded-full transition",
+            active && playing
+              ? "text-accent"
+              : "bg-white/[0.05] text-white/45 group-hover:bg-white/[0.1] group-hover:text-white",
+          )}
+        >
+          {active && playing ? (
+            <EqualizerBars playing className="h-3" />
+          ) : (
+            <Play className="ml-0.5 h-3 w-3 fill-current" />
+          )}
+        </span>
+      </div>
+    </button>
+  );
+}
+
 export function SearchView() {
   const search = usePlayerStore((state) => state.search);
   const setSearch = usePlayerStore((state) => state.setSearch);
@@ -322,6 +431,7 @@ export function SearchView() {
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const playTrack = usePlayerStore((state) => state.playTrack);
   const togglePlay = usePlayerStore((state) => state.togglePlay);
+  const focusLyricsLine = usePlayerStore((state) => state.focusLyricsLine);
 
   const searchSpotify = useSpotifyCatalogStore((state) => state.search);
   const loadAlbumTracks = useSpotifyCatalogStore(
@@ -344,6 +454,9 @@ export function SearchView() {
   const [mode, setMode] = useState<SearchMode>("library");
   const [debounced, setDebounced] = useState(search);
   const [spotify, setSpotify] = useState<SpotifySearchCatalog | null>(null);
+  const [lyricsResults, setLyricsResults] = useState<LyricsSearchResult[]>([]);
+  const [lyricsLoading, setLyricsLoading] = useState(false);
+  const [lyricsError, setLyricsError] = useState<string | null>(null);
   const rememberArtist = useArtistCacheStore((state) => state.remember);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -396,6 +509,36 @@ export function SearchView() {
       cancelled = true;
     };
   }, [debounced, mode, searchSpotify]);
+
+  useEffect(() => {
+    if (mode !== "lyrics") return;
+    const query = debounced.trim();
+    if (query.length < 2) {
+      setLyricsResults([]);
+      setLyricsError(null);
+      setLyricsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLyricsLoading(true);
+    setLyricsError(null);
+    void backend
+      .searchLyrics(query)
+      .then((results) => {
+        if (!cancelled) setLyricsResults(results);
+      })
+      .catch((cause) => {
+        if (cancelled) return;
+        setLyricsResults([]);
+        setLyricsError(cause instanceof Error ? cause.message : String(cause));
+      })
+      .finally(() => {
+        if (!cancelled) setLyricsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [debounced, mode]);
 
   useEffect(() => {
     for (const artist of spotify?.artists ?? []) rememberArtist(artist);
@@ -580,6 +723,25 @@ export function SearchView() {
     [playTrack],
   );
 
+  const playLyricsResult = useCallback(
+    (result: LyricsSearchResult) => {
+      const track =
+        tracks.find((item) => String(item.id) === String(result.track.id)) ??
+        result.track;
+      void playTrack(track, result.lineTimeMs ?? 0);
+      // playTrack clears stale focus synchronously; queue the target after it.
+      focusLyricsLine({
+        trackId: track.id,
+        query: debounced.trim(),
+        lineText: result.lineText,
+        lineTimeMs: result.lineTimeMs,
+        // playTrack above already started at this timestamp.
+        startedAtLine: result.lineTimeMs !== null,
+      });
+    },
+    [debounced, focusLyricsLine, playTrack, tracks],
+  );
+
   const pausePlayback = useCallback(() => void togglePlay(), [togglePlay]);
 
   const downloadAlbum = async (album: SpotifyAlbumSummary) => {
@@ -646,13 +808,15 @@ export function SearchView() {
                   Search
                 </h1>
                 <p className="mt-1.5 max-w-md text-[12.5px] leading-relaxed text-white/35">
-                  Find songs on your PC or across the entire Spotify catalog.
+                  Find songs on your PC, inside your cached lyrics, or across
+                  the entire Spotify catalog.
                 </p>
               </div>
               <div className="flex rounded-full border border-white/[0.08] bg-white/[0.035] p-1">
                 {(
                   [
                     { id: "library", label: "In Library", icon: Heart },
+                    { id: "lyrics", label: "In Lyrics", icon: FileText },
                     { id: "spotify", label: "In Spotify", icon: Sparkles },
                   ] as const
                 ).map((option) => {
@@ -687,15 +851,19 @@ export function SearchView() {
                 placeholder={
                   mode === "library"
                     ? "Search your local library…"
-                    : "Search artists, albums and tracks on Spotify…"
+                    : mode === "lyrics"
+                      ? "Search every cached lyric line…"
+                      : "Search artists, albums and tracks on Spotify…"
                 }
                 className="h-11 w-full rounded-2xl border border-white/[0.08] bg-white/[0.04] pl-11 pr-12 text-[13px] text-white placeholder:text-white/25 outline-none transition focus:border-accent/40 focus:bg-white/[0.06] focus:shadow-[0_0_0_3px_rgba(184,255,79,.06)]"
               />
               <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[9px] font-bold uppercase tracking-[0.15em] text-white/20">
-                {loading ? (
+                {loading || lyricsLoading ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : mode === "library" ? (
                   `${libraryTracks.length} found`
+                ) : mode === "lyrics" ? (
+                  `${lyricsResults.length} found`
                 ) : (
                   "Spotify"
                 )}
@@ -715,8 +883,9 @@ export function SearchView() {
                   Search your library
                 </h2>
                 <p className="mt-1.5 max-w-sm text-[11.5px] leading-relaxed text-white/30">
-                  Type a title, artist, album or format. Switch to In Spotify to
-                  discover music that is not on this PC yet.
+                  Type a title, artist, album or format. Switch to In Lyrics to
+                  search inside cached lyrics, or In Spotify to discover music
+                  that is not on this PC yet.
                 </p>
               </div>
             ) : libraryTracks.length === 0 ? (
@@ -779,6 +948,98 @@ export function SearchView() {
                   }}
                 />
               </>
+            )
+          ) : mode === "lyrics" ? (
+            !search.trim() ? (
+              <div className="flex min-h-[300px] flex-col items-center justify-center rounded-2xl border border-dashed border-white/[0.08] bg-white/[0.015] px-8 py-10 text-center">
+                <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/[0.05] text-white/35">
+                  <FileText className="h-6 w-6" />
+                </span>
+                <h2 className="mt-4 font-display text-[16px] font-bold text-white/80">
+                  Search inside your lyrics
+                </h2>
+                <p className="mt-1.5 max-w-sm text-[11.5px] leading-relaxed text-white/30">
+                  Type a phrase from any cached lyric line. Synced results jump
+                  straight to the matching timestamp; plain text opens the line.
+                </p>
+              </div>
+            ) : search.trim().length < 2 ? (
+              <div className="flex min-h-[260px] flex-col items-center justify-center rounded-2xl border border-dashed border-white/[0.08] bg-white/[0.015] px-8 py-10 text-center">
+                <Search className="h-6 w-6 text-white/25" />
+                <h2 className="mt-3 font-display text-[15px] font-bold text-white/70">
+                  Type at least two characters
+                </h2>
+                <p className="mt-1.5 text-[11.5px] text-white/30">
+                  Whole phrases work best.
+                </p>
+              </div>
+            ) : lyricsLoading ? (
+              <div className="flex min-h-[280px] items-center justify-center">
+                <div className="flex items-center gap-2.5 text-[12px] text-white/35">
+                  <Loader2 className="h-4 w-4 animate-spin text-accent/70" />
+                  Searching cached lyrics…
+                </div>
+              </div>
+            ) : lyricsError ? (
+              <div className="flex min-h-[260px] flex-col items-center justify-center rounded-2xl border border-rose-400/15 bg-rose-400/[0.03] px-8 py-10 text-center">
+                <Disc3 className="h-6 w-6 text-rose-300/70" />
+                <h2 className="mt-3 font-display text-[15px] font-bold text-white/70">
+                  Lyric search failed
+                </h2>
+                <p className="mt-1.5 max-w-md text-[11.5px] leading-relaxed text-white/30">
+                  {lyricsError}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDebounced(`${debounced} `);
+                    window.setTimeout(() => setDebounced(debounced), 20);
+                  }}
+                  className="mt-4 rounded-full border border-white/[0.1] bg-white/[0.05] px-4 py-2 text-[11px] font-semibold text-white/60 transition hover:bg-white/[0.09] hover:text-white"
+                >
+                  Try again
+                </button>
+              </div>
+            ) : lyricsResults.length === 0 ? (
+              <div className="flex min-h-[260px] flex-col items-center justify-center rounded-2xl border border-dashed border-white/[0.08] bg-white/[0.015] px-8 py-10 text-center">
+                <FileText className="h-6 w-6 text-white/25" />
+                <h2 className="mt-3 font-display text-[15px] font-bold text-white/70">
+                  No lyric matches
+                </h2>
+                <p className="mt-1.5 max-w-sm text-[11.5px] leading-relaxed text-white/30">
+                  Try a shorter phrase, another spelling, or refresh lyrics for
+                  a track first.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setMode("library")}
+                  className="mt-4 rounded-full border border-white/[0.1] bg-white/[0.05] px-4 py-2 text-[11px] font-semibold text-white/60 transition hover:bg-white/[0.09] hover:text-white"
+                >
+                  Search tracks instead
+                </button>
+              </div>
+            ) : (
+              <section>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <p className="text-[10.5px] font-semibold text-white/30">
+                    {formatCount(lyricsResults.length, "track")} · click a
+                    result to jump to the line
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  {lyricsResults.map((result) => (
+                    <LyricsSearchRow
+                      key={`${result.track.id}-${result.lineTimeMs ?? "text"}-${result.matchStart}`}
+                      result={result}
+                      active={
+                        String(currentTrack?.id) === String(result.track.id)
+                      }
+                      playing={isPlaying}
+                      onPlay={() => playLyricsResult(result)}
+                    />
+                  ))}
+                </div>
+              </section>
             )
           ) : !debounced.trim() || debounced.trim().length < 2 ? (
             <div className="flex min-h-[300px] flex-col items-center justify-center rounded-2xl border border-dashed border-white/[0.08] bg-white/[0.015] px-8 py-10 text-center">

@@ -2,7 +2,8 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import type { CachedLyrics, LibraryData, TrackFileDeleteResult, TrackRecord } from "./types";
+import type { CachedLyrics, LibraryData, LyricsSearchResult, TrackFileDeleteResult, TrackRecord } from "./types";
+import { searchCachedLyrics } from "./lyrics-search";
 
 const EMPTY: LibraryData = {
   version: 1,
@@ -402,6 +403,16 @@ export class LibraryStore {
 
   getLyrics(trackId: number): CachedLyrics[] {
     return this.data.lyrics[String(trackId)] ?? [];
+  }
+
+  /** Search cached lyrics across the library, one result per track. */
+  searchLyrics(query: string, limit = 50): LyricsSearchResult[] {
+    return searchCachedLyrics(
+      this.data.tracks,
+      this.data.lyrics,
+      query,
+      limit,
+    );
   }
 
   setLyrics(trackId: number, lyrics: CachedLyrics[]): void {

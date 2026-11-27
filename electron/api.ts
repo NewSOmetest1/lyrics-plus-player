@@ -1,5 +1,6 @@
 import type {
   LyricsPayload,
+  LyricsSearchResult,
   MusicFolder,
   MusicFolderAddResult,
   MusicFolderRemoveResult,
@@ -13,6 +14,7 @@ import type {
 
 export type {
   LyricsPayload,
+  LyricsSearchResult,
   MusicFolder,
   MusicFolderAddResult,
   MusicFolderRemoveResult,
